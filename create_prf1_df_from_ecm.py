@@ -13,7 +13,7 @@ from models.experimental import attempt_load
 from utils.datasets import create_dataloader
 from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
     box_iou, non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path, colorstr
-from utils.metrics import ap_per_class, ConfusionMatrix
+from utils.metrics import ap_per_class, all_ap_per_class, ConfusionMatrix
 from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized, TracedModel
 import timm
@@ -27,6 +27,10 @@ def f1_calc(a,b):
     else:
       return 2*a*b/(a+b)
 
+# Model validation metrics
+
+from utils import general
+from utils.metrics import *
 
 # PrecisonとRecall, F1の計算を行う関数
 def p_r_f1_calc(ecm, model, img, targets, paths, shapes, pr_th=None, conf_thres=0.001, iou_thres=0.65):
@@ -64,7 +68,7 @@ def p_r_f1_calc(ecm, model, img, targets, paths, shapes, pr_th=None, conf_thres=
         if True:
             convert_tensor = torchvision.transforms.Compose(
                 [torchvision.transforms.ToTensor(),
-                torchvision.transforms.Resize((224, 224)),
+                torchvision.transforms.Resize((224, 224), antialias=None),
                 torchvision.transforms.Normalize(
                     mean = [0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
                     ),
@@ -186,7 +190,7 @@ def p_r_f1_calc(ecm, model, img, targets, paths, shapes, pr_th=None, conf_thres=
     return torch.tensor(p_list), torch.tensor(r_list), torch.tensor(f1_list)
 
 
-
+# 実行部分
 def test(data,
          weights=None,
          batch_size=32,
@@ -209,7 +213,9 @@ def test(data,
          half_precision=True,
          trace=False,
          is_coco=False,
-         v5_metric=False):
+         v5_metric=False,
+         pr_conf_yolo=0,
+         pr_conf_yolo_ecm=0):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -236,8 +242,8 @@ def test(data,
     if half:
         model.half()
 
-    # =================================================    
-    # # VIT
+# =================================================    
+# # VIT
     resnet = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
     resnet = resnet.to(device)
     try:
@@ -250,7 +256,7 @@ def test(data,
         resnet.load_state_dict(params)
     resnet.eval()
     resnet.to(device)
-    # =================================================
+# =================================================
 
     # Configure
     model.eval()
@@ -290,11 +296,10 @@ def test(data,
     for col in col_list:
         pd_to_dict[col] = []
 
-    set_seed(1)
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader)):
         # print((batch_i+1)*32)
-        model_p, model_r, model_f1 = p_r_f1_calc(ecm=False, model, img, targets, paths, shapes, pr_th=None, conf_thres=0.05, iou_thres=0.65)
-        ecm_p, ecm_r, ecm_f1 = p_r_f1_calc(ecm=True, model, img, targets, paths, shapes, pr_th=None, conf_thres=0.25, iou_thres=0.65)
+        model_p, model_r, model_f1 = p_r_f1_calc(False, model, img, targets, paths, shapes, pr_th=None, conf_thres=0.05, iou_thres=0.65)
+        ecm_p, ecm_r, ecm_f1 = p_r_f1_calc(True, model, img, targets, paths, shapes, pr_th=None, conf_thres=0.25, iou_thres=0.65)
 
         for bi in range(len(img)):
             pd_to_dict['paths'].append(paths[bi])
@@ -307,7 +312,7 @@ def test(data,
             pd_to_dict['ecm_f1'].append(ecm_f1[bi].item())
 
     df = pd.DataFrame(pd_to_dict)
-    df.to_csv('./data/ecm_output_prf1.csv.csv')
+    df.to_csv('./ecm/data/ecm_output_prf1.csv.csv')
     return 
 
     
@@ -336,6 +341,8 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--pr_conf_yolo')
+    parser.add_argument('--pr_conf_yolo_ecm')
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -358,6 +365,8 @@ if __name__ == '__main__':
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric
+             pr_conf_yolo=opt.pr_conf_yolo
+             pr_conf_yolo_ecm=opt.pr_conf_yolo_ecm
              )
 
     elif opt.task == 'speed':  # speed benchmarks

@@ -13,7 +13,7 @@ from models.experimental import attempt_load
 from utils.datasets import create_dataloader
 from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
     box_iou, non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path, colorstr
-from utils.metrics import ap_per_class, ConfusionMatrix
+from utils.metrics import ap_per_class, all_ap_per_class, ConfusionMatrix
 from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized, TracedModel
 import timm
@@ -153,7 +153,7 @@ def test(data,
         if True:
             convert_tensor = torchvision.transforms.Compose(
                 [torchvision.transforms.ToTensor(),
-                torchvision.transforms.Resize((224, 224)),
+                torchvision.transforms.Resize((224, 224), antialias=None),
                 torchvision.transforms.Normalize(
                     mean = [0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
                     ),
@@ -284,7 +284,9 @@ def test(data,
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
-        p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
+        # p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
+        p, r, ap, f1, max_i, ap_class = all_ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
+        p, r, f1 = p[:, max_i], r[:, max_i], f1[:, max_i]
         ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
         mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
         nt = np.bincount(stats[3].astype(np.int64), minlength=nc)  # number of targets per class
