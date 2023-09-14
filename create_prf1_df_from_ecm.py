@@ -241,11 +241,11 @@ def test(data,
     resnet = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
     resnet = resnet.to(device)
     try:
-        path = "./model_path/ViT_GPU20ep.pth"
+        path = "./ecm/model_path/ViT_GPU20ep.pth"
         params = torch.load(path)
         resnet.load_state_dict(params)
     except:
-        path = "./model_path/ViT_CPU20ep.pth"
+        path = "./ecm/model_path/ViT_CPU20ep.pth"
         params = torch.load(path)
         resnet.load_state_dict(params)
     resnet.eval()
