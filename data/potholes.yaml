@@ -1,5 +1,5 @@
-train: .data/real885/
-val: .data/test_dataset/
+train: ./ecm/data/real885/
+val: ./ecm/data/test_dataset/
 # Classes
 nc: 3  # number of classes
 names: ["hole", "manhole", "shadow"]
