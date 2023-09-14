@@ -1,6 +1,5 @@
-train: /content/drive/MyDrive/2023_研究/edogawaku/2023_smartcomp/★real885/real885/
-val: /content/drive/MyDrive/修論/pothole/2023_smartcomp/test_dataset
-# test: /content/drive/MyDrive/修論/pothole/2023_smartcomp/★test_dataset/test
+train: .data/real885/
+val: .data/test_dataset/
 # Classes
 nc: 3  # number of classes
 names: ["hole", "manhole", "shadow"]
