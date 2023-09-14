@@ -72,18 +72,18 @@ def test(data,
 
     # =================================================    
     # # VIT
-    resnet = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
-    resnet = resnet.to(device)
-    try:
-        path = "./ecm/model_path/ViT_GPU20ep.pth"
-        params = torch.load(path)
-        resnet.load_state_dict(params)
-    except:
-        path = "./ecm/model_path/ViT_CPU20ep.pth"
-        params = torch.load(path)
-        resnet.load_state_dict(params)
-    resnet.eval()
-    resnet.to(device)
+    ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
+    ecm_model = ecm_model.to(device)
+    # try:
+    path = "./ecm/model_path/ViT_GPU20ep.pth"
+    params = torch.load(path)
+    ecm_model.load_state_dict(params)
+    # except:
+        # path = "./ecm/model_path/ViT_CPU20ep.pth"
+        # params = torch.load(path)
+        # ecm_model.load_state_dict(params)
+    ecm_model.eval()
+    ecm_model.to(device)
     # =================================================
 
     # Configure
@@ -168,19 +168,19 @@ def test(data,
                     if int(object_bbox[-1])!=0:
                         return_preds.append(object_bbox)
                     
-                    # yoloが穴だと認識した時、resnetが穴というなら穴。
+                    # yoloが穴だと認識した時、ecm_modelが穴というなら穴。
                     else:
                         crop_image = pil_image.crop((object_bbox[0], object_bbox[1], object_bbox[2], object_bbox[3]))
                         convert_crop_image = convert_tensor(crop_image)
-                        # resnetに入力
-                        resnet_results = resnet(convert_crop_image.unsqueeze(0).to(device))
-                        resnet_pred_label = torch.argmax(resnet_results[0])
-                        # resnetが穴だと認識したら、検出結果を含める。
-                        # print("resnetの結果, yoloの結果 : ", resnet_pred_label.item(), object_bbox[-1])
-                        if resnet_pred_label.item() == 0:
+                        # ecm_modelに入力
+                        ecm_model_results = ecm_model(convert_crop_image.unsqueeze(0).to(device))
+                        ecm_model_pred_label = torch.argmax(ecm_model_results[0])
+                        # ecm_modelが穴だと認識したら、検出結果を含める。
+                        # print("ecm_modelの結果, yoloの結果 : ", ecm_model_pred_label.item(), object_bbox[-1])
+                        if ecm_model_pred_label.item() == 0:
                             return_preds.append(object_bbox)
                         else:
-                            object_bbox[-1] = resnet_pred_label.item()
+                            object_bbox[-1] = ecm_model_pred_label.item()
                             return_preds.append(object_bbox)
                 np_return_preds = np.array(return_preds)
                 preds[batch_num] = torch.from_numpy(np_return_preds.astype(np.float32)).clone().to(device)

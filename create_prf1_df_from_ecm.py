@@ -33,7 +33,7 @@ from utils import general
 from utils.metrics import *
 
 # PrecisonとRecall, F1の計算を行う関数
-def p_r_f1_calc(ecm, model, img, targets, paths, shapes, pr_th=None, conf_thres=0.001, iou_thres=0.65):
+def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=None, conf_thres=0.001, iou_thres=0.65):
     # パラメータ
     model.eval()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -83,19 +83,19 @@ def p_r_f1_calc(ecm, model, img, targets, paths, shapes, pr_th=None, conf_thres=
                     if int(object_bbox[-1])!=0:
                         return_preds.append(object_bbox)
                     
-                    # yoloが穴だと認識した時、resnetが穴というなら穴。
+                    # yoloが穴だと認識した時、ecm_modelが穴というなら穴。
                     else:
                         crop_image = pil_image.crop((object_bbox[0], object_bbox[1], object_bbox[2], object_bbox[3]))
                         convert_crop_image = convert_tensor(crop_image)
-                        # resnetに入力
-                        resnet_results = resnet(convert_crop_image.unsqueeze(0).to(device))
-                        resnet_pred_label = torch.argmax(resnet_results[0])
-                        # resnetが穴だと認識したら、検出結果を含める。
-                        # print("resnetの結果, yoloの結果 : ", resnet_pred_label.item(), object_bbox[-1])
-                        if resnet_pred_label.item() == 0:
+                        # ecm_modelに入力
+                        ecm_model_results = ecm_model(convert_crop_image.unsqueeze(0).to(device))
+                        ecm_model_pred_label = torch.argmax(ecm_model_results[0])
+                        # ecm_modelが穴だと認識したら、検出結果を含める。
+                        # print("ecm_modelの結果, yoloの結果 : ", ecm_model_pred_label.item(), object_bbox[-1])
+                        if ecm_model_pred_label.item() == 0:
                             return_preds.append(object_bbox)
                         else:
-                            object_bbox[-1] = resnet_pred_label.item()
+                            object_bbox[-1] = ecm_model_pred_label.item()
                             return_preds.append(object_bbox)
                 np_return_preds = np.array(return_preds)
                 preds[batch_num] = torch.from_numpy(np_return_preds.astype(np.float32)).clone().to(device)
@@ -166,21 +166,30 @@ def p_r_f1_calc(ecm, model, img, targets, paths, shapes, pr_th=None, conf_thres=
         stats_i = [np.concatenate(x, 0) for x in zip(*stats_i)]  # to numpy
         # Compute statistics
         if len(stats_i) and stats_i[0].any():
-            p, r, ap, f1, max_i, ap_class = all_ap_per_class(*stats_i, plot=plots, v5_metric=False, save_dir=Path(''), names=names)
+            p, r, ap, f1, max_i, ap_class = all_ap_per_class(*stats_i, plot=False, v5_metric=False, save_dir=Path(''), names=names)
             ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
             mean_p, mean_r, mean_f1, map50, map = p.mean(), r.mean(), f1.mean(), ap50.mean(), ap.mean()
             nt = np.bincount(stats_i[3].astype(np.int64), minlength=nc)  # number of targets per class
             mp, mr, mf1, map50, map = p[:, max_i].mean(), r[:, max_i].mean(), f1[:, max_i].mean(), map50, map
 
+            # class : mean
+            # if pr_th is None:
+            #     p_list.append(mp)
+            #     r_list.append(mr)
+            #     f1_list.append(f1_calc(mp,mr))
+            # else:
+            #     p_list.append(p[:, int(pr_th)].mean())
+            #     r_list.append(r[:, int(pr_th)].mean())
+            #     f1_list.append(f1_calc(p[:, int(pr_th)].mean(),r[:, int(pr_th)].mean()))
+            # class : pothole
             if pr_th is None:
-                p_list.append(mp)
-                r_list.append(mr)
-                f1_list.append(f1_calc(mp,mr))
+                p_list.append(p[:, max_i][0])
+                r_list.append(r[:, max_i][0])
+                f1_list.append(f1_calc(p[:, max_i][0],r[:, max_i][0]))
             else:
-                p_list.append(p[:, pr_th].mean())
-                r_list.append(r[:, pr_th].mean())
-                f1_list.append(f1_calc(p[:, pr_th].mean(),r[:, pr_th].mean()))
-                # print(p[:, pr_th].mean(), r[:, pr_th].mean())
+                p_list.append(p[:, int(pr_th)][0])
+                r_list.append(r[:, int(pr_th)][0])
+                f1_list.append(f1_calc(p[:, int(pr_th)][0],r[:, int(pr_th)][0]))
 
         else:
             nt = torch.zeros(1)
@@ -244,18 +253,18 @@ def test(data,
 
 # =================================================    
 # # VIT
-    resnet = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
-    resnet = resnet.to(device)
+    ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
+    ecm_model = ecm_model.to(device)
     try:
         path = "./ecm/model_path/ViT_GPU20ep.pth"
         params = torch.load(path)
-        resnet.load_state_dict(params)
+        ecm_model.load_state_dict(params)
     except:
         path = "./ecm/model_path/ViT_CPU20ep.pth"
         params = torch.load(path)
-        resnet.load_state_dict(params)
-    resnet.eval()
-    resnet.to(device)
+        ecm_model.load_state_dict(params)
+    ecm_model.eval()
+    ecm_model.to(device)
 # =================================================
 
     # Configure
@@ -297,9 +306,8 @@ def test(data,
         pd_to_dict[col] = []
 
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader)):
-        # print((batch_i+1)*32)
-        model_p, model_r, model_f1 = p_r_f1_calc(False, model, img, targets, paths, shapes, pr_th=None, conf_thres=0.05, iou_thres=0.65)
-        ecm_p, ecm_r, ecm_f1 = p_r_f1_calc(True, model, img, targets, paths, shapes, pr_th=None, conf_thres=0.25, iou_thres=0.65)
+        model_p, model_r, model_f1 = p_r_f1_calc(False, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=pr_conf_yolo, conf_thres=conf_thres, iou_thres=0.65)
+        ecm_p, ecm_r, ecm_f1 = p_r_f1_calc(True, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=pr_conf_yolo_ecm, conf_thres=conf_thres, iou_thres=0.65)
 
         for bi in range(len(img)):
             pd_to_dict['paths'].append(paths[bi])
@@ -364,8 +372,8 @@ if __name__ == '__main__':
              save_hybrid=opt.save_hybrid,
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
-             v5_metric=opt.v5_metric
-             pr_conf_yolo=opt.pr_conf_yolo
+             v5_metric=opt.v5_metric,
+             pr_conf_yolo=opt.pr_conf_yolo,
              pr_conf_yolo_ecm=opt.pr_conf_yolo_ecm
              )
 
