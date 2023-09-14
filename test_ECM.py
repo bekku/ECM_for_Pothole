@@ -290,6 +290,7 @@ def test(data,
         ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
         mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
         nt = np.bincount(stats[3].astype(np.int64), minlength=nc)  # number of targets per class
+        print(f"The confidence level at which f1 is maximal : {max_i}")
     else:
         nt = torch.zeros(1)
 
