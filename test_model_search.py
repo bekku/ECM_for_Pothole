@@ -355,33 +355,33 @@ def test(data,
         if wandb_logger and wandb_logger.wandb:
             val_batches = [wandb_logger.wandb.Image(str(f), caption=f.name) for f in sorted(save_dir.glob('test*.jpg'))]
             wandb_logger.log({"Validation": val_batches})
-    if wandb_images:
-        wandb_logger.log({"Bounding Box Debugger/Images": wandb_images})
+    # if wandb_images:
+    #     wandb_logger.log({"Bounding Box Debugger/Images": wandb_images})
 
-    # Save JSON
-    if save_json and len(jdict):
-        w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
-        anno_json = './coco/annotations/instances_val2017.json'  # annotations json
-        pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
-        print('\nEvaluating pycocotools mAP... saving %s...' % pred_json)
-        with open(pred_json, 'w') as f:
-            json.dump(jdict, f)
+    # # Save JSON
+    # if save_json and len(jdict):
+    #     w = Path(weights[0] if isinstance(weights, list) else weights).stem if weights is not None else ''  # weights
+    #     anno_json = './coco/annotations/instances_val2017.json'  # annotations json
+    #     pred_json = str(save_dir / f"{w}_predictions.json")  # predictions json
+    #     print('\nEvaluating pycocotools mAP... saving %s...' % pred_json)
+    #     with open(pred_json, 'w') as f:
+    #         json.dump(jdict, f)
 
-        try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
-            from pycocotools.coco import COCO
-            from pycocotools.cocoeval import COCOeval
+    #     try:  # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
+    #         from pycocotools.coco import COCO
+    #         from pycocotools.cocoeval import COCOeval
 
-            anno = COCO(anno_json)  # init annotations api
-            pred = anno.loadRes(pred_json)  # init predictions api
-            eval = COCOeval(anno, pred, 'bbox')
-            if is_coco:
-                eval.params.imgIds = [int(Path(x).stem) for x in dataloader.dataset.img_files]  # image IDs to evaluate
-            eval.evaluate()
-            eval.accumulate()
-            eval.summarize()
-            map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
-        except Exception as e:
-            print(f'pycocotools unable to run: {e}')
+    #         anno = COCO(anno_json)  # init annotations api
+    #         pred = anno.loadRes(pred_json)  # init predictions api
+    #         eval = COCOeval(anno, pred, 'bbox')
+    #         if is_coco:
+    #             eval.params.imgIds = [int(Path(x).stem) for x in dataloader.dataset.img_files]  # image IDs to evaluate
+    #         eval.evaluate()
+    #         eval.accumulate()
+    #         eval.summarize()
+    #         map, map50 = eval.stats[:2]  # update results (mAP@0.5:0.95, mAP@0.5)
+    #     except Exception as e:
+    #         print(f'pycocotools unable to run: {e}')
 
     # Return results
     model.float()  # for training
