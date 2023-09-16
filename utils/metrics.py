@@ -137,7 +137,7 @@ def all_ap_per_class(tp, conf, pred_cls, target_cls, v5_metric=False, plot=False
         plot_mc_curve(px, p, Path(save_dir) / 'P_curve.png', names, ylabel='Precision')
         plot_mc_curve(px, r, Path(save_dir) / 'R_curve.png', names, ylabel='Recall')
 
-    max_i = f1.mean(0).argmax()  # max F1 index
+    max_i = f1[0].argmax()  # max F1 index
     # ※max_iは評価時しかわからない→結局どのconf_thかを求めていない。
     return p, r, ap, f1, max_i, unique_classes.astype('int32')
 

@@ -63,7 +63,8 @@ def test(data,
          trace=False,
          is_coco=False,
          v5_metric=False,
-         model_search="model_search"):
+         model_search="model_search",
+         model_search_th=False):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -111,9 +112,10 @@ def test(data,
     model_ft._fc = nn.Linear(num_ftrs, 2)
     model_ft.to(device)
 
-    model_path = "./ecm/model_path/select_conf_by_effinet.pth"
+    model_path = "./ecm/model_path/select_conf_by_effinet_20.pth"
     model_ft.load_state_dict(torch.load(model_path))
     print("loaded search model")
+    softmax_func = nn.Softmax(dim=1)
     # =================================================
 
     # Configure
@@ -161,12 +163,16 @@ def test(data,
         nb, _, height, width = img.shape  # batch size, channels, height, width
 
         with torch.no_grad():
-            # ○ model_select
+# ○ model_select
             if model_search=="model_search":
                 model_ft.eval()
                 input_images = get_TensorImg_from_path(paths[0]).to(device)
                 output = model_ft(input_images)
                 model_num = torch.argmax(output).item()
+                # モデル選択は確信度の閾値を基に選択する
+                if model_search_th:
+                    if not(model_num == 1 and max(softmax_func(output)[0])>=float(model_search_th)):
+                        model_num = 0
             elif model_search=="random":
                 model_num = str(random.randint(0, 1))
             else:
@@ -417,6 +423,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--model_search')
+    parser.add_argument('--model_search_th')
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -439,7 +446,8 @@ if __name__ == '__main__':
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
-             model_search=opt.model_search
+             model_search=opt.model_search,
+             model_search_th=opt.model_search_th
              )
 
     elif opt.task == 'speed':  # speed benchmarks
