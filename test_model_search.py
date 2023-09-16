@@ -19,6 +19,7 @@ from utils.torch_utils import select_device, time_synchronized, TracedModel
 import timm
 import copy
 import torchvision
+import random
 
 from torch.utils.data import Dataset
 from PIL import Image
@@ -27,10 +28,10 @@ from efficientnet_pytorch import EfficientNet
 import torch.nn as nn
 
 def get_TensorImg_from_path(image_path):
-    transform = transforms.Compose([
-        transforms.Resize((640, 640)),    # 必要な画像サイズにリサイズ
-        transforms.ToTensor(),             # テンソルに変換
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # 平均と標準偏差で正規化
+    transform = torchvision.transforms.Compose([
+        torchvision.transforms.Resize((640, 640)),    # 必要な画像サイズにリサイズ
+        torchvision.transforms.ToTensor(),             # テンソルに変換
+        torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # 平均と標準偏差で正規化
     ])
     image = Image.open(image_path)
     if image.mode != 'RGB':
@@ -61,7 +62,8 @@ def test(data,
          half_precision=True,
          trace=False,
          is_coco=False,
-         v5_metric=False):
+         v5_metric=False,
+         model_search="model_search"):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -106,12 +108,12 @@ def test(data,
     # model_ft = EfficientNet.from_pretrained('efficientnet-b0')  #Pretrained_modelのインポート
     model_ft = EfficientNet.from_name("efficientnet-b0")
     num_ftrs = model_ft._fc.in_features #全結合層の名前は"_fc"となっています
-    model_ft._fc = nn.Linear(num_ftrs, 5)
+    model_ft._fc = nn.Linear(num_ftrs, 2)
     model_ft.to(device)
 
     model_path = "./ecm/model_path/select_conf_by_effinet.pth"
     model_ft.load_state_dict(torch.load(model_path))
-    print("loaded model")
+    print("loaded search model")
     # =================================================
 
     # Configure
@@ -160,11 +162,15 @@ def test(data,
 
         with torch.no_grad():
             # ○ model_select
-            model_ft.eval()
-            input_images = get_TensorImg_from_path(paths[0]).to(device)
-            output = model_ft(input_images)
-            model_num = torch.argmax(output).item()
-            # model_num = str(random.randint(0, 4))
+            if model_search=="model_search":
+                model_ft.eval()
+                input_images = get_TensorImg_from_path(paths[0]).to(device)
+                output = model_ft(input_images)
+                model_num = torch.argmax(output).item()
+            elif model_search=="random":
+                model_num = str(random.randint(0, 1))
+            else:
+                model_num = 0
 
             # Run model
             t = time_synchronized()
@@ -185,7 +191,7 @@ def test(data,
 
 # ============================================================================================================================
         preds = copy.deepcopy(out)
-        if model_num==1:
+        if str(model_num)=="1":
             convert_tensor = torchvision.transforms.Compose(
                 [torchvision.transforms.ToTensor(),
                 torchvision.transforms.Resize((224, 224), antialias=None),
@@ -410,6 +416,7 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--model_search')
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -431,7 +438,8 @@ if __name__ == '__main__':
              save_hybrid=opt.save_hybrid,
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
-             v5_metric=opt.v5_metric
+             v5_metric=opt.v5_metric,
+             model_search=opt.model_search
              )
 
     elif opt.task == 'speed':  # speed benchmarks
