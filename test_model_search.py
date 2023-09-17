@@ -89,22 +89,17 @@ def test(data,
     if half:
         model.half()
 
-    # =================================================    
+# load model
+# =================================================    
     # # VIT
     ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
-    # try:
     path = "./ecm/model_path/ViT_GPU20ep.pth"
     params = torch.load(path)
     ecm_model.load_state_dict(params)
-    # except:
-        # path = "./ecm/model_path/ViT_CPU20ep.pth"
-        # params = torch.load(path)
-        # ecm_model.load_state_dict(params)
     ecm_model.eval()
     ecm_model.to(device)
 
-    # model_ft = EfficientNet.from_pretrained('efficientnet-b0')  #Pretrained_modelのインポート
     model_ft = EfficientNet.from_name("efficientnet-b0")
     num_ftrs = model_ft._fc.in_features #全結合層の名前は"_fc"となっています
     model_ft._fc = nn.Linear(num_ftrs, 2)
@@ -114,7 +109,7 @@ def test(data,
     model_ft.load_state_dict(torch.load(model_path))
     print("loaded search model")
     softmax_func = nn.Softmax(dim=1)
-    # =================================================
+# =================================================
 
     # Configure
     model.eval()
@@ -161,7 +156,9 @@ def test(data,
         nb, _, height, width = img.shape  # batch size, channels, height, width
 
         with torch.no_grad():
-# ○ model_select ============================================================================================================
+            
+# model_select
+# ============================================================================================================================
             if model_search=="model_search":
                 model_ft.eval()
                 input_images = get_TensorImg_from_path(paths[0]).to(device)
@@ -176,6 +173,7 @@ def test(data,
             else:
                 model_num = 0
 # ============================================================================================================================
+
             # Run model
             t = time_synchronized()
             out, train_out = model(img, augment=augment)  # inference and training outputs
@@ -192,7 +190,7 @@ def test(data,
             out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
             t1 += time_synchronized() - t
 
-
+# ECM
 # ============================================================================================================================
         preds = copy.deepcopy(out)
         if str(model_num)=="1":

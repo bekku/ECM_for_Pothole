@@ -202,10 +202,12 @@ def Train_Router(path, net, router, router_ins, epoch, loader, dotest=False):
 
 
 if __name__ == '__main__':
+    # arg============================================================================================
     CSV_PATH = '/content/drive/MyDrive/修論/pothole/ECM_for_potholes/ecm_output_prf1.csv'
     BATCH_SIZE = 8
     YOLOV7_WEIGHT = "./ecm/model_path/potholedet_yolov7.pt"
     SAVE_ROUTER_PATH = "/content/router.pth"
+    # ===============================================================================================
 
     set_seed(1)
     device = "cuda" if torch.cuda.is_available() else "cpu"

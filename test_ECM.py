@@ -70,22 +70,18 @@ def test(data,
     if half:
         model.half()
 
-    # =================================================    
+# load model
+# =================================================    
     # # VIT
     ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
-    # try:
     path = "./ecm/model_path/ViT_GPU20ep.pth"
     params = torch.load(path)
     ecm_model.load_state_dict(params)
-    # except:
-        # path = "./ecm/model_path/ViT_CPU20ep.pth"
-        # params = torch.load(path)
-        # ecm_model.load_state_dict(params)
     ecm_model.eval()
     ecm_model.to(device)
     softmax_func = nn.Softmax(dim=1)
-    # =================================================
+# =================================================
 
     # Configure
     model.eval()
@@ -149,6 +145,7 @@ def test(data,
             t1 += time_synchronized() - t
 
 
+# ECM
 # ============================================================================================================================
         preds = copy.deepcopy(out)
         if True:
@@ -380,7 +377,7 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
-    parser.add_argument('--ecm_th')
+    parser.add_argument('--ecm_th', default=False)
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file

@@ -78,19 +78,15 @@ def test(data,
     half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
     if half:
         model.half()
-
-    # =================================================    
+        
+# load model
+# =================================================    
     # # VIT
     ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
-    # try:
     path = "./ecm/model_path/ViT_GPU20ep.pth"
     params = torch.load(path)
     ecm_model.load_state_dict(params)
-    # except:
-        # path = "./ecm/model_path/ViT_CPU20ep.pth"
-        # params = torch.load(path)
-        # ecm_model.load_state_dict(params)
     ecm_model.eval()
     ecm_model.to(device)
 
@@ -132,7 +128,7 @@ def test(data,
     router_params = torch.load(router_path)
     router.load_state_dict(router_params)
     router.eval()
-    # =================================================
+# =================================================
 
     # Configure
     model.eval()
@@ -182,7 +178,8 @@ def test(data,
             # Run model
             t = time_synchronized()
             # out, train_out = model(img, augment=augment)  # inference and training outputs
-# ○ model_select ============================================================================================================
+# model_select
+# ============================================================================================================================
             out, score = model.forward_score(img, router, router_ins)
             score
 # ============================================================================================================================
@@ -196,7 +193,7 @@ def test(data,
             out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
             t1 += time_synchronized() - t
 
-
+# ECM
 # ============================================================================================================================
         preds = copy.deepcopy(out)
         # print(float(score[0].item()), float(score[0].item())>=float(router_th))
