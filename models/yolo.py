@@ -630,6 +630,40 @@ class Model(nn.Module):
             print('%.1fms total' % sum(dt))
         return x
 
+    def forward_score(self, x, router, router_ins, profile=False):
+        y, dt = [], []  # outputs
+        for m in self.model:
+            if m.f != -1:  # if not from previous layer
+                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+
+            if not hasattr(self, 'traced'):
+                self.traced=False
+
+            if self.traced:
+                if isinstance(m, Detect) or isinstance(m, IDetect) or isinstance(m, IAuxDetect) or isinstance(m, IKeypoint):
+                    break
+
+            if profile:
+                c = isinstance(m, (Detect, IDetect, IAuxDetect, IBin))
+                o = thop.profile(m, inputs=(x.copy() if c else x,), verbose=False)[0] / 1E9 * 2 if thop else 0  # FLOPS
+                for _ in range(10):
+                    m(x.copy() if c else x)
+                t = time_synchronized()
+                for _ in range(10):
+                    m(x.copy() if c else x)
+                dt.append((time_synchronized() - t) * 100)
+                print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
+
+            x = m(x)  # run
+            
+            y.append(x)  # save output   
+        score = router([y[i] for i in router_ins]) # 'score' denotes the (1 - difficulty score)
+
+        if profile:
+            print('%.1fms total' % sum(dt))
+        return x, score
+
+
     def _initialize_biases(self, cf=None):  # initialize biases into Detect(), cf is class frequency
         # https://arxiv.org/abs/1708.02002 section 3.3
         # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1.
@@ -841,3 +875,38 @@ if __name__ == '__main__':
     # print("Run 'tensorboard --logdir=models/runs' to view tensorboard at http://localhost:6006/")
     # tb_writer.add_graph(model.model, img)  # add model to tensorboard
     # tb_writer.add_image('test', img[0], dataformats='CWH')  # add model to tensorboard
+
+
+def sigmoid(logits, hard=False, threshold=0.5):
+    y_soft = logits.sigmoid()
+    if hard:
+        indices = (y_soft < threshold).nonzero(as_tuple=True)
+        y_hard = torch.zeros_like(logits, memory_format=torch.legacy_contiguous_format)
+        y_hard[indices[0], indices[1]] = 1.0
+        ret = y_hard - y_soft.detach() + y_soft
+    else:
+        ret = y_soft
+    return ret
+
+
+class AdaptiveRouter(nn.Module):
+    def __init__(self, features_channels, out_channels, reduction=4):
+        super(AdaptiveRouter, self).__init__()
+        self.inp = sum(features_channels)
+        self.oup = out_channels
+        self.reduction = reduction
+        self.layer1 = nn.Conv2d(self.inp, self.inp//self.reduction, kernel_size=1, bias=True)
+        self.layer2 = nn.Conv2d(self.inp//self.reduction, self.oup, kernel_size=1, bias=True)
+
+    def forward(self, xs, thres=0.5):
+        xs = [x.mean(dim=(2, 3), keepdim=True) for x in xs]
+        xs = torch.cat(xs, dim=1)
+        xs = self.layer1(xs)
+        xs = F.relu(xs, inplace=True)
+        xs = self.layer2(xs).flatten(1)
+        if self.training:
+            xs = sigmoid(xs, hard=False, threshold=thres)
+        else:
+            xs = xs.sigmoid()
+        return xs
+        

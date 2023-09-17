@@ -163,7 +163,7 @@ def test(data,
         nb, _, height, width = img.shape  # batch size, channels, height, width
 
         with torch.no_grad():
-# ○ model_select
+# ○ model_select ============================================================================================================
             if model_search=="model_search":
                 model_ft.eval()
                 input_images = get_TensorImg_from_path(paths[0]).to(device)
@@ -177,7 +177,7 @@ def test(data,
                 model_num = str(random.randint(0, 1))
             else:
                 model_num = 0
-
+# ============================================================================================================================
             # Run model
             t = time_synchronized()
             out, train_out = model(img, augment=augment)  # inference and training outputs
