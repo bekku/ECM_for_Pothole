@@ -876,37 +876,4 @@ if __name__ == '__main__':
     # tb_writer.add_graph(model.model, img)  # add model to tensorboard
     # tb_writer.add_image('test', img[0], dataformats='CWH')  # add model to tensorboard
 
-
-def sigmoid(logits, hard=False, threshold=0.5):
-    y_soft = logits.sigmoid()
-    if hard:
-        indices = (y_soft < threshold).nonzero(as_tuple=True)
-        y_hard = torch.zeros_like(logits, memory_format=torch.legacy_contiguous_format)
-        y_hard[indices[0], indices[1]] = 1.0
-        ret = y_hard - y_soft.detach() + y_soft
-    else:
-        ret = y_soft
-    return ret
-
-
-class AdaptiveRouter(nn.Module):
-    def __init__(self, features_channels, out_channels, reduction=4):
-        super(AdaptiveRouter, self).__init__()
-        self.inp = sum(features_channels)
-        self.oup = out_channels
-        self.reduction = reduction
-        self.layer1 = nn.Conv2d(self.inp, self.inp//self.reduction, kernel_size=1, bias=True)
-        self.layer2 = nn.Conv2d(self.inp//self.reduction, self.oup, kernel_size=1, bias=True)
-
-    def forward(self, xs, thres=0.5):
-        xs = [x.mean(dim=(2, 3), keepdim=True) for x in xs]
-        xs = torch.cat(xs, dim=1)
-        xs = self.layer1(xs)
-        xs = F.relu(xs, inplace=True)
-        xs = self.layer2(xs).flatten(1)
-        if self.training:
-            xs = sigmoid(xs, hard=False, threshold=thres)
-        else:
-            xs = xs.sigmoid()
-        return xs
         

@@ -6,6 +6,8 @@ from threading import Thread
 
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import yaml
 from tqdm import tqdm
 
@@ -69,8 +71,8 @@ def test(data,
         gs = max(int(model.stride.max()), 32)  # grid size (max stride)
         imgsz = check_img_size(imgsz, s=gs)  # check img_size
         
-        if trace:
-            model = TracedModel(model, device, imgsz)
+        # if trace:
+        #     model = TracedModel(model, device, imgsz)
 
     # Half
     half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
@@ -124,11 +126,12 @@ def test(data,
     # yolov7.pt
     router_ins = [2, 11, 24, 37, 50]
     router_channels = [64, 256, 512, 1024, 1024]
-    router = AdaptiveRouter(router_channels, 1).to(device)
+    router = AdaptiveRouter(router_channels, 1).half().to(device)
 
     router_path = "./ecm/model_path/router.pth"
     router_params = torch.load(router_path)
     router.load_state_dict(router_params)
+    router.eval()
     # =================================================
 
     # Configure
@@ -180,7 +183,8 @@ def test(data,
             t = time_synchronized()
             # out, train_out = model(img, augment=augment)  # inference and training outputs
 # ○ model_select ============================================================================================================
-            out, score = net.forward_score(images, router, router_ins)
+            out, score = model.forward_score(img, router, router_ins)
+            score
 # ============================================================================================================================
             t0 += time_synchronized() - t
 
@@ -188,13 +192,15 @@ def test(data,
             targets[:, 2:] *= torch.Tensor([width, height, width, height]).to(device)  # to pixels
             lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
             t = time_synchronized()
+            out=out[0]
             out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
             t1 += time_synchronized() - t
 
 
 # ============================================================================================================================
         preds = copy.deepcopy(out)
-        if float(score.item())>=router_th:
+        # print(float(score[0].item()), float(score[0].item())>=float(router_th))
+        if float(score[0].item())>=float(router_th):
             convert_tensor = torchvision.transforms.Compose(
                 [torchvision.transforms.ToTensor(),
                 torchvision.transforms.Resize((224, 224), antialias=None),
