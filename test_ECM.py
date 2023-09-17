@@ -19,6 +19,7 @@ from utils.torch_utils import select_device, time_synchronized, TracedModel
 import timm
 import copy
 import torchvision
+import torch.nn as nn
 
 
 def test(data,
@@ -43,7 +44,8 @@ def test(data,
          half_precision=True,
          trace=False,
          is_coco=False,
-         v5_metric=False):
+         v5_metric=False,
+         ecm_th=False):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -84,6 +86,7 @@ def test(data,
         # ecm_model.load_state_dict(params)
     ecm_model.eval()
     ecm_model.to(device)
+    softmax_func = nn.Softmax(dim=1)
     # =================================================
 
     # Configure
@@ -175,12 +178,16 @@ def test(data,
                         # ecm_modelに入力
                         ecm_model_results = ecm_model(convert_crop_image.unsqueeze(0).to(device))
                         ecm_model_pred_label = torch.argmax(ecm_model_results[0])
+                        ecm_model_pred_label_value = ecm_model_pred_label.item()
+                        if ecm_th!=False:
+                            if not(ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_results)[0]).item()>=float(ecm_th)):
+                                ecm_model_pred_label_value = 1
                         # ecm_modelが穴だと認識したら、検出結果を含める。
                         # print("ecm_modelの結果, yoloの結果 : ", ecm_model_pred_label.item(), object_bbox[-1])
-                        if ecm_model_pred_label.item() == 0:
+                        if ecm_model_pred_label_value == 0:
                             return_preds.append(object_bbox)
                         else:
-                            object_bbox[-1] = ecm_model_pred_label.item()
+                            object_bbox[-1] = ecm_model_pred_label_value
                             return_preds.append(object_bbox)
                 np_return_preds = np.array(return_preds)
                 preds[batch_num] = torch.from_numpy(np_return_preds.astype(np.float32)).clone().to(device)
@@ -375,6 +382,7 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--ecm_th')
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -396,7 +404,8 @@ if __name__ == '__main__':
              save_hybrid=opt.save_hybrid,
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
-             v5_metric=opt.v5_metric
+             v5_metric=opt.v5_metric,
+             ecm_th=opt.ecm_th
              )
 
     elif opt.task == 'speed':  # speed benchmarks
