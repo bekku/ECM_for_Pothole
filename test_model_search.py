@@ -40,6 +40,14 @@ def get_TensorImg_from_path(image_path):
     return torch.unsqueeze(image, dim=0)
 
 
+def random_zero_one(probability_of_one):
+    # 0から1までの乱数を生成し、それがprobability_of_oneより小さいかどうかで0または1を選択します。
+    if random.random() < probability_of_one:
+        return 1
+    else:
+        return 0
+
+
 def test(data,
          weights=None,
          batch_size=32,
@@ -64,7 +72,10 @@ def test(data,
          is_coco=False,
          v5_metric=False,
          model_search="model_search",
-         model_search_th=False):
+         random_p = 0.5,
+         model_search_th=False,
+         ecm_path = "./ecm/model_path/ViT_GPU20ep.pth",
+         router_model_path = "./ecm/model_path/select_conf_by_effinet_20.pth"):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -94,8 +105,7 @@ def test(data,
     # # VIT
     ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
-    path = "./ecm/model_path/ViT_GPU20ep.pth"
-    params = torch.load(path)
+    params = torch.load(ecm_path)
     ecm_model.load_state_dict(params)
     ecm_model.eval()
     ecm_model.to(device)
@@ -105,8 +115,7 @@ def test(data,
     model_ft._fc = nn.Linear(num_ftrs, 2)
     model_ft.to(device)
 
-    model_path = "./ecm/model_path/select_conf_by_effinet_20.pth"
-    model_ft.load_state_dict(torch.load(model_path))
+    model_ft.load_state_dict(torch.load(router_model_path))
     print("loaded search model")
     softmax_func = nn.Softmax(dim=1)
 # =================================================
@@ -156,7 +165,7 @@ def test(data,
         nb, _, height, width = img.shape  # batch size, channels, height, width
 
         with torch.no_grad():
-            
+
 # model_select
 # ============================================================================================================================
             if model_search=="model_search":
@@ -169,7 +178,9 @@ def test(data,
                     if not(model_num == 1 and max(softmax_func(output)[0])>=float(model_search_th)):
                         model_num = 0
             elif model_search=="random":
-                model_num = str(random.randint(0, 1))
+                # model_num = str(random.randint(0, 1))
+                probability = float(random_p)
+                model_num = str(random_zero_one(probability))
             else:
                 model_num = 0
 # ============================================================================================================================
@@ -420,6 +431,10 @@ if __name__ == '__main__':
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--model_search')
     parser.add_argument('--model_search_th')
+    parser.add_argument('--ecm_path', default="./ecm/model_path/ViT_GPU20ep.pth")
+    parser.add_argument('--router_model_path', default="./ecm/model_path/select_conf_by_effinet_20.pth")
+    parser.add_argument('--random_p', default=0.5)
+
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -443,7 +458,10 @@ if __name__ == '__main__':
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
              model_search=opt.model_search,
-             model_search_th=opt.model_search_th
+             random_p=opt.random_p,
+             model_search_th=opt.model_search_th,
+             ecm_path=opt.ecm_path,
+             router_model_path=opt.router_model_path
              )
 
     elif opt.task == 'speed':  # speed benchmarks

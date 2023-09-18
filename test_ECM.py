@@ -45,7 +45,8 @@ def test(data,
          trace=False,
          is_coco=False,
          v5_metric=False,
-         ecm_th=False):
+         ecm_th=False,
+         ecm_path = "./ecm/model_path/ViT_GPU20ep.pth"):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -75,8 +76,7 @@ def test(data,
     # # VIT
     ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
-    path = "./ecm/model_path/ViT_GPU20ep.pth"
-    params = torch.load(path)
+    params = torch.load(ecm_path)
     ecm_model.load_state_dict(params)
     ecm_model.eval()
     ecm_model.to(device)
@@ -378,6 +378,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--ecm_th', default=False)
+    parser.add_argument('--ecm_path', default="./ecm/model_path/ViT_GPU20ep.pth")
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -400,7 +401,8 @@ if __name__ == '__main__':
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
-             ecm_th=opt.ecm_th
+             ecm_th=opt.ecm_th,
+             ecm_path=opt.ecm_path
              )
 
     elif opt.task == 'speed':  # speed benchmarks

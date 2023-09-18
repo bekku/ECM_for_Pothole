@@ -52,7 +52,10 @@ def test(data,
          trace=False,
          is_coco=False,
          v5_metric=False,
-         router_th=False):
+         router_th=False,
+         ecm_path = "./ecm/model_path/ViT_GPU20ep.pth",
+         router_path = "./ecm/model_path/router.pth"
+         ):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -78,14 +81,14 @@ def test(data,
     half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
     if half:
         model.half()
-        
+
 # load model
 # =================================================    
     # # VIT
     ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
-    path = "./ecm/model_path/ViT_GPU20ep.pth"
-    params = torch.load(path)
+    # ecm_path = "./ecm/model_path/ViT_GPU20ep.pth"
+    params = torch.load(ecm_path)
     ecm_model.load_state_dict(params)
     ecm_model.eval()
     ecm_model.to(device)
@@ -123,8 +126,7 @@ def test(data,
     router_ins = [2, 11, 24, 37, 50]
     router_channels = [64, 256, 512, 1024, 1024]
     router = AdaptiveRouter(router_channels, 1).half().to(device)
-
-    router_path = "./ecm/model_path/router.pth"
+    
     router_params = torch.load(router_path)
     router.load_state_dict(router_params)
     router.eval()
@@ -423,6 +425,8 @@ if __name__ == '__main__':
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--router_th')
+    parser.add_argument('--ecm_path', default="./ecm/model_path/ViT_GPU20ep.pth")
+    parser.add_argument('--router_path', default="./ecm/model_path/router.pth")
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -445,7 +449,9 @@ if __name__ == '__main__':
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
-             router_th=opt.router_th
+             router_th=opt.router_th,
+             ecm_path=opt.ecm_path,
+             router_path=opt.router_path,
              )
 
     elif opt.task == 'speed':  # speed benchmarks
