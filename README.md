@@ -63,7 +63,7 @@ random_p：指定された確率でECMを選択する.
 ```
 python test_dynamic_det.py --data ./data/potholes.yaml --img 640 --batch 1 --conf 0.001 --iou 0.65 --device 0  \
                            --weights ./ecm/model_path/potholedet_yolov7.pt --name yolov7_640_val --router_th 0.51 \
-                           --router_path /content/router_10ep.pth
+                           --router_path ./ecm/model_path/router_10ep.pth
 ```
 router_th：routerが出力するscoreの閾値である. この閾値よりも大きければ, ECMを実行する.
 
