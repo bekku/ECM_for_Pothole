@@ -2,13 +2,33 @@
 
 ## 1. train
 
-### train p5 models
+### train yolov7 models
 ```
 python train.py --device 0 --epoch 100 --batch-size 8 --data data/potholes.yaml --img 640 640 --seed 1 \
-                --cfg cfg/training/yolov7-tiny.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
+                --cfg cfg/training/yolov7.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
 ```
 
+### train ECM
+1. vitの学習用画像を用意する
+2. vitを学習する
+
+### train dynamic router
+train_router.py
+
+### train dynamic efficientnet
+...
+
 ## 2. evaluation
+<ins>ここに記載される評価コードは, クラスの0番目が最大となるPやRを出力するため, potholeのクラスは0番目にする. 詳細はap_per_classにて.</ins>
+```
+data/potholes.yaml
+
+train: ./ecm/data/train_dataset/
+val: ./ecm/data/test_dataset/
+# Classes
+nc: 3  # number of classes
+names: ["pothole", "manhole", "shadow"]
+```
 
 ### 2.1 test.py : yoloの性能評価
 ```
@@ -53,7 +73,7 @@ test_model_searchには, router_model_pathが存在し, efficientnet-b0のモデ
 ```
 ### 2.5 test_wbf.py : yoloにおけるwbfでの性能評価
 ```
-python test.py --data ./data/potholes.yaml --img 640 --batch 1 --conf 0.001 --iou 0.65 \
+python test_wbf.py --data ./data/potholes.yaml --img 640 --batch 1 --conf 0.001 --iou 0.65 \
                --weights ./ecm/model_path/potholedet_yolov7.pt --name yolov7_640_val \
                --weights2 ./ecm/model_path/potholedet_yolov7_wbf.pt
 ```
