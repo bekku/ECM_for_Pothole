@@ -51,3 +51,9 @@ router_th：routerが出力するscoreの閾値である. この閾値よりも�
 test_ECM, test_dynamic_detには, ecm_path が存在する.
 test_model_searchには, router_model_pathが存在し, efficientnet-b0のモデルのpathを入力することができる.
 ```
+### 2.5 test_wbf.py : yoloにおけるwbfでの性能評価
+```
+python test.py --data ./data/potholes.yaml --img 640 --batch 1 --conf 0.001 --iou 0.65 \
+               --weights ./ecm/model_path/potholedet_yolov7.pt --name yolov7_640_val \
+               --weights2 ./ecm/model_path/potholedet_yolov7_wbf.pt
+```
