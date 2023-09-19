@@ -86,7 +86,7 @@ def test(data,
 # load model
 # =================================================    
     # # VIT
-    ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
+    ecm_model = timm.create_model('vit_base_patch16_224.augreg_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
     params = torch.load(ecm_path)
     ecm_model.load_state_dict(params)

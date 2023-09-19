@@ -40,7 +40,7 @@ def yolo_ano_convert(x, y, w, h, size_x, size_y):
 # ano_path = '/content/drive/MyDrive/2022-s/minamiku卒論/★train_dataset/★cg96gan96real885/labels/'
 
 def main():
-    options = {'-img_path': True, '-ano_path': True, , '-save_path': True}
+    options = {'-img_path': True, '-ano_path': True, '-save_path': True}
     args = {'img_path': None, 'ano_path': None, 'save_path': None}  # デフォルト値
 
     for key in options.keys():
@@ -58,9 +58,14 @@ def main():
                 del sys.argv[index]
 
     # ディレクトリのパスを指定
+    
     save_dict = {"0":os.path.join(args["save_path"], "hole/"), 
                 "1":os.path.join(args["save_path"], "manhole/"), 
                 "2":os.path.join(args["save_path"], "shadow/"),}
+    for key, val in save_dict.items():
+        if not os.path.exists(val):
+            print(f"ディレクトリ{val}を作成しました")
+            os.makedirs(val)
     img_path = args["img_path"]
     ano_path = args["ano_path"]
 

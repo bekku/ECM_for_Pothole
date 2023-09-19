@@ -1,4 +1,4 @@
-train: ./ecm/data/real885/
+train: ./ecm/data/train_dataset/
 val: ./ecm/data/test_dataset/
 # Classes
 nc: 3  # number of classes

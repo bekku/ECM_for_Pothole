@@ -253,7 +253,7 @@ def test(data,
 
 # =================================================    
 # # VIT
-    ecm_model = timm.create_model('vit_base_patch16_224_in21k', pretrained=True, num_classes=3)
+    ecm_model = timm.create_model('vit_base_patch16_224.augreg_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
     try:
         path = "./ecm/model_path/ViT_GPU20ep.pth"
