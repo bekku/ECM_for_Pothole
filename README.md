@@ -73,7 +73,7 @@ test_model_searchには, router_model_pathが存在し, efficientnet-b0のモデ
 ```
 ### 2.5 test_wbf.py : yoloにおけるwbfでの性能評価
 ```
-python test.py --data ./data/potholes.yaml --img 640 --batch 1 --conf 0.001 --iou 0.65 \
+python test_wbf.py --data ./data/potholes.yaml --img 640 --batch 1 --conf 0.001 --iou 0.65 \
                --weights ./ecm/model_path/potholedet_yolov7.pt --name yolov7_640_val \
                --weights2 ./ecm/model_path/potholedet_yolov7_wbf.pt
 ```
