@@ -22,6 +22,7 @@ import copy
 import torchvision
 import torch.nn as nn
 from ensemble_boxes import *
+import pandas as pd
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -75,10 +76,17 @@ def get_img_size(path):
 def bbox_norm_from_preds(pred_np_list, img_size):
     pred_np_list_norm = copy.deepcopy(pred_np_list)
     for pred_np in pred_np_list_norm:
+        # 正規化
         pred_np[:,0]/=img_size[0]
         pred_np[:,1]/=img_size[1]
         pred_np[:,2]/=img_size[0]
         pred_np[:,3]/=img_size[1]
+        # 0~1で埋め込む(yoloのbboxの出力は-を含む)
+        pred_np[:,0] = pad_bbox_0to1(pred_np[:,0])
+        pred_np[:,1] = pad_bbox_0to1(pred_np[:,1])
+        pred_np[:,2] = pad_bbox_0to1(pred_np[:,2])
+        pred_np[:,3] = pad_bbox_0to1(pred_np[:,3])
+
     return pred_np_list_norm
 
 def create_wfb_list(pred_np_list):
@@ -99,6 +107,13 @@ def create_wfb_list(pred_np_list):
 
     return boxes_list, scores_list, labels_list
 
+def pad_bbox_0to1(bbox_col):
+    ret_bbox_col = copy.deepcopy(bbox_col)
+    ret_bbox_col = np.maximum(ret_bbox_col, 0)
+    ret_bbox_col = np.minimum(ret_bbox_col, 1)
+    return ret_bbox_col
+
+
 def get_pred_xyxy_from_result_wbf(norm_boxes, scores, labels, img_size):
     boxes = copy.deepcopy(norm_boxes)
     # 逆正規化
@@ -106,6 +121,7 @@ def get_pred_xyxy_from_result_wbf(norm_boxes, scores, labels, img_size):
     boxes[:,1]*=img_size[1]
     boxes[:,2]*=img_size[0]
     boxes[:,3]*=img_size[1]
+    # 列毎に, 0より小さい場合は0を埋める.1より大きい場合は1を埋める.
     ret_pred_xyxy = pd.DataFrame(boxes, columns=["xmin", "xmin", "xmax", "ymax"])
     ret_pred_xyxy["confidence"] = scores
     ret_pred_xyxy["class"] = labels
@@ -228,7 +244,7 @@ def test(data,
             ret_out = []
             for batch_num in range(len(out)):
                 pred_np_list = [out[batch_num].to('cpu').detach().numpy().copy(), out2[batch_num].to('cpu').detach().numpy().copy()]
-                pred_np_list_norm = bbox_norm_from_preds(pred_np_list, img_size = (height, width))
+                pred_np_list_norm = bbox_norm_from_preds(pred_np_list, img_size = (width, height))
                 boxes_list, scores_list, labels_list = create_wfb_list(pred_np_list_norm)
                 # wbf
                 weights = [1, 1]
@@ -237,8 +253,8 @@ def test(data,
                 sigma = 0.1
                 boxes, scores, labels = weighted_boxes_fusion(boxes_list, scores_list, labels_list, weights=weights, iou_thr=iou_thr, skip_box_thr=skip_box_thr)
                 # convert results wbf to pred_xyxy
-                pred_xyxy_wbf = get_pred_xyxy_from_result_wbf(boxes, scores, labels, (height, width))
-                ret_out.append(torch.tensor(pred_xyxy_wbf.to_numpy()))
+                pred_xyxy_wbf = get_pred_xyxy_from_result_wbf(boxes, scores, labels, (width, height))
+                ret_out.append(torch.tensor(pred_xyxy_wbf.to_numpy()).to(device))
 
             # WBF結果を上書き
             out = ret_out
@@ -431,7 +447,6 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
-    parser.add_argument('--ecm_th', default=False)
     parser.add_argument('--weights2', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
     parser.add_argument('--seed', default=1)
     opt = parser.parse_args()
@@ -456,7 +471,6 @@ if __name__ == '__main__':
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
-             ecm_th=opt.ecm_th,
              weights2=opt.weights2,
              seed=opt.seed
              )
