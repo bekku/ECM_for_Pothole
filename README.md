@@ -2,21 +2,21 @@
 
 ## 1. train
 
-### train yolov7 models
+### 1.1 train yolov7 models
 ```
 python train.py --device 0 --epoch 100 --batch-size 8 --data data/potholes.yaml --img 640 640 --seed 1 \
                 --cfg cfg/training/yolov7.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
 ```
 
-### train ECM
+### 1.2 train ECM
 1. vitの学習用画像を用意する
 2. vitを学習する
 
-### train dynamic router
+### 1.3 train dynamic router
 1. create_prf1_df_from_ecm.py：データ生成
 2. train_router.py：router学習
 
-### train dynamic efficientnet
+### 1.4 train dynamic efficientnet
 ...
 
 ## 2. evaluation
