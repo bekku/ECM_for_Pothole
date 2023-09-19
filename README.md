@@ -2,11 +2,17 @@
 
 ## 1. train
 
-### train p5 models
+### train yolov7 models
 ```
 python train.py --device 0 --epoch 100 --batch-size 8 --data data/potholes.yaml --img 640 640 --seed 1 \
                 --cfg cfg/training/yolov7-tiny.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
 ```
+
+### train ECM
+
+### train dynamic router
+
+### train dynamic efficientnet
 
 ## 2. evaluation
 <ins>ここに記載される評価コードは, クラスの0番目が最大となるPやRを出力するため, potholeのクラスは0番目にする. 詳細はap_per_classにて.</ins>
