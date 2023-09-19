@@ -14,6 +14,7 @@ tqdm>=4.41.0
 protobuf<4.21.3
 timm==0.9.7
 efficientnet_pytorch==0.7.1
+ensemble-boxes
 
 # Logging -------------------------------------
 tensorboard>=2.4.1
