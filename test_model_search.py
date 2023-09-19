@@ -47,6 +47,15 @@ def random_zero_one(probability_of_one):
     else:
         return 0
 
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(seed)
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    return None
 
 def test(data,
          weights=None,
@@ -75,7 +84,9 @@ def test(data,
          random_p = 0.5,
          model_search_th=False,
          ecm_path = "./ecm/model_path/ViT_GPU20ep.pth",
-         router_model_path = "./ecm/model_path/select_conf_by_effinet_20.pth"):
+         router_model_path = "./ecm/model_path/select_conf_by_effinet_20.pth",
+         seed = 1):
+    set_seed(int(seed))
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -434,7 +445,7 @@ if __name__ == '__main__':
     parser.add_argument('--ecm_path', default="./ecm/model_path/ViT_GPU20ep.pth")
     parser.add_argument('--router_model_path', default="./ecm/model_path/select_conf_by_effinet_20.pth")
     parser.add_argument('--random_p', default=0.5)
-
+    parser.add_argument('--seed', default=1)
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -461,7 +472,8 @@ if __name__ == '__main__':
              random_p=opt.random_p,
              model_search_th=opt.model_search_th,
              ecm_path=opt.ecm_path,
-             router_model_path=opt.router_model_path
+             router_model_path=opt.router_model_path,
+             seed=opt.seed
              )
 
     elif opt.task == 'speed':  # speed benchmarks

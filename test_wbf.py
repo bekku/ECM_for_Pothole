@@ -22,7 +22,15 @@ import torchvision
 import torch.nn as nn
 from ensemble_boxes import *
 
-
+def set_seed(seed):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    np.random.seed(seed)
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    return None
 
 # WBF Func
 # ==================================================================================================================
@@ -128,8 +136,10 @@ def test(data,
          trace=False,
          is_coco=False,
          v5_metric=False,
-         weights2 = None):
+         weights2 = None,
+         seed = 1):
     # Initialize/load model and set device
+    set_seed(int(seed))
     training = model is not None
     if training:  # called by train.py
         device = next(model.parameters()).device  # get model device
@@ -421,6 +431,7 @@ if __name__ == '__main__':
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--ecm_th', default=False)
     parser.add_argument('--weights2', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
+    parser.add_argument('--seed', default=1)
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -444,7 +455,8 @@ if __name__ == '__main__':
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
              ecm_th=opt.ecm_th,
-             weights2=opt.weights2
+             weights2=opt.weights2,
+             seed=opt.seed
              )
 
     elif opt.task == 'speed':  # speed benchmarks
