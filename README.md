@@ -9,6 +9,16 @@ python train.py --device 0 --epoch 100 --batch-size 8 --data data/potholes.yaml 
 ```
 
 ## 2. evaluation
+<ins>ここに記載される評価コードは, クラスの0番目が最大となるPやRを出力するため, potholeのクラスは0番目にする. 詳細はap_per_classにて.</ins>
+```
+data/potholes.yaml
+
+train: ./ecm/data/train_dataset/
+val: ./ecm/data/test_dataset/
+# Classes
+nc: 3  # number of classes
+names: ["pothole", "manhole", "shadow"]
+```
 
 ### 2.1 test.py : yoloの性能評価
 ```
