@@ -13,7 +13,8 @@ python train.py --device 0 --epoch 100 --batch-size 8 --data data/potholes.yaml 
 2. vitを学習する
 
 ### train dynamic router
-train_router.py
+1. create_prf1_df_from_ecm.py：データ生成
+2. train_router.py：router学習
 
 ### train dynamic efficientnet
 ...
