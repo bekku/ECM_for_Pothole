@@ -5,7 +5,7 @@
 ### train yolov7 models
 ```
 python train.py --device 0 --epoch 100 --batch-size 8 --data data/potholes.yaml --img 640 640 --seed 1 \
-                --cfg cfg/training/yolov7-tiny.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
+                --cfg cfg/training/yolov7.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
 ```
 
 ### train ECM
