@@ -9,10 +9,14 @@ python train.py --device 0 --epoch 100 --batch-size 8 --data data/potholes.yaml 
 ```
 
 ### train ECM
+1. vitの学習用画像を用意する
+2. vitを学習する
 
 ### train dynamic router
+train_router.py
 
 ### train dynamic efficientnet
+...
 
 ## 2. evaluation
 <ins>ここに記載される評価コードは, クラスの0番目が最大となるPやRを出力するため, potholeのクラスは0番目にする. 詳細はap_per_classにて.</ins>
