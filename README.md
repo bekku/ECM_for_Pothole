@@ -78,6 +78,8 @@ python test_dynamic_det.py --data ./data/potholes.yaml --img 640 --batch 1 --con
 ```
 router_th：routerが出力するscoreの閾値である. この閾値よりも大きければ, ECMを実行する.
 
+▷ router_thが高いほど, ECMの実行確率が下がるので速度向上, 精度低下
+
 ```
 test_ECM, test_dynamic_detには, ecm_path が存在する.
 test_model_searchには, router_model_pathが存在し, efficientnet-b0のモデルのpathを入力することができる.
