@@ -259,23 +259,22 @@ def test(data,
             t1 += time_synchronized() - t
 # WBF
 # ============================================================================================================================
-            ret_out = []
+            wbf_out = []
             for batch_num in range(len(out)):
-                pred_np_list = [out[batch_num].to('cpu').detach().numpy().copy(), out2[batch_num].to('cpu').detach().numpy().copy()]
-                pred_np_list_norm = bbox_norm_from_preds(pred_np_list, img_size = (width, height))
-                boxes_list, scores_list, labels_list = create_wfb_list(pred_np_list_norm)
+                wbf_pred_np_list = [out[batch_num].to('cpu').detach().numpy().copy(), out2[batch_num].to('cpu').detach().numpy().copy()]
+                wbf_pred_np_list_norm = bbox_norm_from_preds(wbf_pred_np_list, img_size = (width, height))
+                wbf_boxes_list, wbf_scores_list, labels_list = create_wfb_list(wbf_pred_np_list_norm)
                 # wbf
-                weights = [1, 1]
-                iou_thr = 0.5
-                skip_box_thr = 0.0001
-                sigma = 0.1
-                boxes, scores, labels = weighted_boxes_fusion(boxes_list, scores_list, labels_list, weights=weights, iou_thr=iou_thr, skip_box_thr=skip_box_thr)
+                wbf_weights = [1, 1]
+                wbf_iou_thr = 0.5
+                wbf_skip_box_thr = 0.0001
+                wbf_boxes, wbf_scores, wbf_labels = weighted_boxes_fusion(wbf_boxes_list, wbf_scores_list, labels_list, weights=wbf_weights, iou_thr=wbf_iou_thr, skip_box_thr=wbf_skip_box_thr)
                 # convert results wbf to pred_xyxy
-                pred_xyxy_wbf = get_pred_xyxy_from_result_wbf(boxes, scores, labels, (width, height))
-                ret_out.append(torch.tensor(pred_xyxy_wbf.to_numpy()).to(device))
+                pred_xyxy_wbf = get_pred_xyxy_from_result_wbf(wbf_boxes, wbf_scores, wbf_labels, (width, height))
+                wbf_out.append(torch.tensor(pred_xyxy_wbf.to_numpy()).to(device))
 
             # WBF結果を上書き
-            out = ret_out
+            out = wbf_out
 # ============================================================================================================================  
 # ECM
 # ============================================================================================================================
