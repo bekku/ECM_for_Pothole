@@ -131,6 +131,7 @@ def test(data,
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         img = img.to(device, non_blocking=True)
+# iumage to ECM
 # ====================================
         im_to_ecm = copy.deepcopy(img)
 # ====================================
