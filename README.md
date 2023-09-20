@@ -9,11 +9,21 @@ python train.py --device 0 --epoch 100 --batch-size 8 --data data/potholes.yaml 
 ```
 
 ### 1.2 train ECM
+train_ECM.ipynb
 1. vitの学習用画像を用意する
 2. vitを学習する
 
 ### 1.3 train dynamic router
 1. create_prf1_df_from_ecm.py：データ生成
+```
+python create_prf1_df_from_ecm.py --data ./data/potholes.yaml --img 640 --batch 32 --conf 0.001 --iou 0.65 \
+                                  --task train --device 0 --weights ./ecm/model_path/potholedet_yolov7.pt \
+                                  --name yolov7_640_val --pr_conf_yolo 332 --pr_conf_yolo_ecm 303
+```
+pr_conf_yolo : test.pyで出力された、The confidence level at which f1 is maximal : ???の値を利用する. 
+
+pr_conf_yolo_ecm : test_ECM.pyで出力された、The confidence level at which f1 is maximal : ???の値を利用する. 
+
 2. train_router.py：router学習
 
 ### 1.4 train dynamic efficientnet
@@ -67,6 +77,8 @@ python test_dynamic_det.py --data ./data/potholes.yaml --img 640 --batch 1 --con
                            --router_path ./ecm/model_path/router_10ep.pth
 ```
 router_th：routerが出力するscoreの閾値である. この閾値よりも大きければ, ECMを実行する.
+
+▷ router_thが高いほど, ECMの実行確率が下がるので速度向上, 精度低下
 
 ```
 test_ECM, test_dynamic_detには, ecm_path が存在する.
