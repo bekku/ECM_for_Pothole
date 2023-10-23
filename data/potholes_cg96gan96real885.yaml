@@ -1,0 +1,5 @@
+train: ./ecm/data/cg96gan96real885/
+val: ./ecm/data/test_dataset/
+# Classes
+nc: 3  # number of classes
+names: ["hole", "manhole", "shadow"]
