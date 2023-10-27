@@ -166,21 +166,12 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
         stats_i = [np.concatenate(x, 0) for x in zip(*stats_i)]  # to numpy
         # Compute statistics
         if len(stats_i) and stats_i[0].any():
-            p, r, ap, f1, max_i, ap_class = all_ap_per_class(*stats_i, plot=False, v5_metric=False, save_dir=Path(''), names=names)
+            p, r, ap, f1, max_i, ap_class = all_ap_per_class_all_class(*stats_i, plot=False, v5_metric=False, save_dir=Path(''), names=names)
             ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
             mean_p, mean_r, mean_f1, map50, map = p.mean(), r.mean(), f1.mean(), ap50.mean(), ap.mean()
             nt = np.bincount(stats_i[3].astype(np.int64), minlength=nc)  # number of targets per class
             mp, mr, mf1, map50, map = p[:, max_i].mean(), r[:, max_i].mean(), f1[:, max_i].mean(), map50, map
 
-            # class : mean
-            # if pr_th is None:
-            #     p_list.append(mp)
-            #     r_list.append(mr)
-            #     f1_list.append(f1_calc(mp,mr))
-            # else:
-            #     p_list.append(p[:, int(pr_th)].mean())
-            #     r_list.append(r[:, int(pr_th)].mean())
-            #     f1_list.append(f1_calc(p[:, int(pr_th)].mean(),r[:, int(pr_th)].mean()))
             # class : pothole
             if pr_th is None:
                 p_list.append(p[:, max_i][0])
