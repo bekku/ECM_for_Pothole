@@ -160,6 +160,7 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
     p_list = []
     r_list = []
     f1_list = []
+    ap_list = []
     # max_i_list = []
     for i_num in range(len(stats)):
         stats_i = stats[i_num:i_num+1]
@@ -177,17 +178,20 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
                 p_list.append(p[:, max_i][0])
                 r_list.append(r[:, max_i][0])
                 f1_list.append(f1_calc(p[:, max_i][0],r[:, max_i][0]))
+                ap_list.append(ap50[0])
             else:
                 p_list.append(p[:, int(pr_th)][0])
                 r_list.append(r[:, int(pr_th)][0])
                 f1_list.append(f1_calc(p[:, int(pr_th)][0],r[:, int(pr_th)][0]))
+                ap_list.append(ap50[0])
 
         else:
             nt = torch.zeros(1)
             p_list.append(0.0)
             r_list.append(0.0)
             f1_list.append(0.0)
-    return torch.tensor(p_list), torch.tensor(r_list), torch.tensor(f1_list)
+            ap_list.append(0.0)
+    return torch.tensor(p_list), torch.tensor(r_list), torch.tensor(f1_list), torch.tensor(ap_list)
 
 
 # 実行部分
@@ -291,24 +295,26 @@ def test(data,
 
     pd_to_dict = dict()
     col_list = ['paths',
-                'model_p', 'model_r', 'model_f1',
-                'ecm_p', 'ecm_r', 'ecm_f1',]
+                'model_p', 'model_r', 'model_f1','model_ap',
+                'ecm_p', 'ecm_r', 'ecm_f1','ecm_ap']
     for col in col_list:
         pd_to_dict[col] = []
 
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader)):
-        model_p, model_r, model_f1 = p_r_f1_calc(False, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=pr_conf_yolo, conf_thres=conf_thres, iou_thres=0.65)
-        ecm_p, ecm_r, ecm_f1 = p_r_f1_calc(True, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=pr_conf_yolo_ecm, conf_thres=conf_thres, iou_thres=0.65)
+        model_p, model_r, model_f1, model_ap = p_r_f1_calc(False, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=pr_conf_yolo, conf_thres=conf_thres, iou_thres=0.65)
+        ecm_p, ecm_r, ecm_f1, ecm_ap = p_r_f1_calc(True, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=pr_conf_yolo_ecm, conf_thres=conf_thres, iou_thres=0.65)
 
         for bi in range(len(img)):
             pd_to_dict['paths'].append(paths[bi])
             pd_to_dict['model_p'].append(model_p[bi].item())
             pd_to_dict['model_r'].append(model_r[bi].item())
             pd_to_dict['model_f1'].append(model_f1[bi].item())
+            pd_to_dict['model_ap'].append(model_ap[bi].item())
 
             pd_to_dict['ecm_p'].append(ecm_p[bi].item())
             pd_to_dict['ecm_r'].append(ecm_r[bi].item())
             pd_to_dict['ecm_f1'].append(ecm_f1[bi].item())
+            pd_to_dict['ecm_ap'].append(ecm_ap[bi].item())
 
     df = pd.DataFrame(pd_to_dict)
     df.to_csv('./ecm/data/ecm_output_prf1.csv.csv')
