@@ -104,10 +104,7 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
                         ecm_model_pred_label = torch.argmax(ecm_model_result)
                         ecm_model_pred_label_value = ecm_model_pred_label.item()
                         
-                        if ecm_th:
-                            if not (ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_result)).item() >= float(ecm_th)):
-                                ecm_model_pred_label_value = 1
-                        
+                        # ecm_modelの出力が陥没穴(class:0), 検出された物体が陥没穴ではない(class!=0)の場合そのまま追加する。
                         if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
                             return_preds.append(object_bbox)
                         else:
