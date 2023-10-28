@@ -1,0 +1,5 @@
+train: ./ecm/data/semi_easy_test_dataset/
+val: ./ecm/data/semi_easy_test_dataset/
+# Classes
+nc: 3  # number of classes
+names: ["hole", "manhole", "shadow"]
