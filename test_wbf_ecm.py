@@ -286,7 +286,7 @@ def test(data,
                 torchvision.transforms.Resize((224, 224), antialias=None),
                 torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ])
-            softmax_func = torch.nn.Softmax(dim=1)
+            softmax_func = torch.nn.Softmax(dim=0)
 
             BATCH_SIZE = 50  # 適切なバッチサイズに調整してください
 
