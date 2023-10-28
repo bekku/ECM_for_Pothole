@@ -202,6 +202,8 @@ def test(data,
             ])
             softmax_func = torch.nn.Softmax(dim=1)
 
+            BATCH_SIZE = 50  # 適切なバッチサイズに調整してください
+
             # predsをバッチで処理
             for batch_num in range(len(preds)):
                 pil_image = torchvision.transforms.functional.to_pil_image(im_to_ecm[batch_num])
@@ -218,25 +220,31 @@ def test(data,
                     cropped_images.append(convert_crop_image)
                 
                 # バッチ処理: ecm_modelの入力を一度に行う
-                ecm_model_results = ecm_model(torch.stack(cropped_images).to(device))
-                
-                # 結果の処理
-                for ecm_model_result, object_bbox in zip(ecm_model_results, np_preds):
-                    ecm_model_pred_label = torch.argmax(ecm_model_result)
-                    ecm_model_pred_label_value = ecm_model_pred_label.item()
+                num_batches = -(-len(cropped_images) // BATCH_SIZE)
+                for i in range(num_batches):
+                    start_idx = i * BATCH_SIZE
+                    end_idx = min((i + 1) * BATCH_SIZE, len(cropped_images))
+                    mini_batch = torch.stack(cropped_images[start_idx:end_idx]).to(device)
+                    ecm_model_results = ecm_model(mini_batch)
                     
-                    if ecm_th:
-                        if not (ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_result)).item() >= float(ecm_th)):
-                            ecm_model_pred_label_value = 1
-                    
-                    if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
-                        return_preds.append(object_bbox)
-                    else:
-                        object_bbox[-1] = ecm_model_pred_label_value
-                        return_preds.append(object_bbox)
+                    # 結果の処理
+                    for ecm_model_result, object_bbox in zip(ecm_model_results, np_preds[start_idx:end_idx]):
+                        ecm_model_pred_label = torch.argmax(ecm_model_result)
+                        ecm_model_pred_label_value = ecm_model_pred_label.item()
+                        
+                        if ecm_th:
+                            if not (ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_result)).item() >= float(ecm_th)):
+                                ecm_model_pred_label_value = 1
+                        
+                        if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
+                            return_preds.append(object_bbox)
+                        else:
+                            object_bbox[-1] = ecm_model_pred_label_value
+                            return_preds.append(object_bbox)
                 
                 # 最後にpredsを更新
                 preds[batch_num] = torch.from_numpy(np.array(return_preds).astype(np.float32)).to(device)
+
         out = preds
 # ============================================================================================================================
 
