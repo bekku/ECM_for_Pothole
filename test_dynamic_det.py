@@ -209,41 +209,57 @@ def test(data,
 # ECM
 # ============================================================================================================================
         preds = copy.deepcopy(out)
-        # print(float(score[0].item()), float(score[0].item())>=float(router_th))
         if float(score[0].item())>=float(router_th):
-            convert_tensor = torchvision.transforms.Compose(
-                [torchvision.transforms.ToTensor(),
+            # 予め変換処理を作成
+            convert_tensor = torchvision.transforms.Compose([
+                torchvision.transforms.ToTensor(),
                 torchvision.transforms.Resize((224, 224), antialias=None),
-                torchvision.transforms.Normalize(
-                    mean = [0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                    ),
-                ])
+                torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+            softmax_func = torch.nn.Softmax(dim=1)
+
+            BATCH_SIZE = 50  # 適切なバッチサイズに調整してください
+
+            # predsをバッチで処理
             for batch_num in range(len(preds)):
                 pil_image = torchvision.transforms.functional.to_pil_image(im_to_ecm[batch_num])
                 np_preds = np.array(preds[batch_num].to("cpu"))
-                # np_predsから削除した物をreturn_predsにいれる。最後にnp化する。
+                
+                # 処理結果を保存するリスト
                 return_preds = []
+                cropped_images = []
+                
+                # np_predsの各bboxでループ
                 for object_bbox in np_preds:
-                    # yoloが穴ではないと判別した時、そのまま追加。
-                    if int(object_bbox[-1])!=0:
-                        return_preds.append(object_bbox)
+                    crop_image = pil_image.crop((object_bbox[0], object_bbox[1], object_bbox[2], object_bbox[3]))
+                    convert_crop_image = convert_tensor(crop_image)
+                    cropped_images.append(convert_crop_image)
+                
+                # バッチ処理: ecm_modelの入力を一度に行う
+                num_batches = -(-len(cropped_images) // BATCH_SIZE)
+                for i in range(num_batches):
+                    start_idx = i * BATCH_SIZE
+                    end_idx = min((i + 1) * BATCH_SIZE, len(cropped_images))
+                    mini_batch = torch.stack(cropped_images[start_idx:end_idx]).to(device)
+                    ecm_model_results = ecm_model(mini_batch)
                     
-                    # yoloが穴だと認識した時、ecm_modelが穴というなら穴。
-                    else:
-                        crop_image = pil_image.crop((object_bbox[0], object_bbox[1], object_bbox[2], object_bbox[3]))
-                        convert_crop_image = convert_tensor(crop_image)
-                        # ecm_modelに入力
-                        ecm_model_results = ecm_model(convert_crop_image.unsqueeze(0).to(device))
-                        ecm_model_pred_label = torch.argmax(ecm_model_results[0])
-                        # ecm_modelが穴だと認識したら、検出結果を含める。
-                        # print("ecm_modelの結果, yoloの結果 : ", ecm_model_pred_label.item(), object_bbox[-1])
-                        if ecm_model_pred_label.item() == 0:
+                    # 結果の処理
+                    for ecm_model_result, object_bbox in zip(ecm_model_results, np_preds[start_idx:end_idx]):
+                        ecm_model_pred_label = torch.argmax(ecm_model_result)
+                        ecm_model_pred_label_value = ecm_model_pred_label.item()
+                        
+                        if ecm_th:
+                            if not (ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_result)).item() >= float(ecm_th)):
+                                ecm_model_pred_label_value = 1
+                        
+                        if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
                             return_preds.append(object_bbox)
                         else:
-                            object_bbox[-1] = ecm_model_pred_label.item()
+                            object_bbox[-1] = ecm_model_pred_label_value
                             return_preds.append(object_bbox)
-                np_return_preds = np.array(return_preds)
-                preds[batch_num] = torch.from_numpy(np_return_preds.astype(np.float32)).clone().to(device)
+                
+                # 最後にpredsを更新
+                preds[batch_num] = torch.from_numpy(np.array(return_preds).astype(np.float32)).to(device)
 
         out = preds
 # ============================================================================================================================
