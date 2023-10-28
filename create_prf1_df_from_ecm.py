@@ -61,8 +61,8 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
         lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if False else []  # for autolabelling
         out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
 
+# ECM
 # ============================================================================================================================
-#   ECM
     if ecm:
         preds = copy.deepcopy(out)
         if True:
