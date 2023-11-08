@@ -13,7 +13,7 @@ from models.experimental import attempt_load
 from utils.datasets import create_dataloader
 from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
     box_iou, non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path, colorstr
-from utils.metrics import ap_per_class, all_ap_per_class, ConfusionMatrix
+from utils.metrics import ap_per_class, all_ap_per_class, ConfusionMatrix, all_ap_per_class_all_class
 from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized, TracedModel
 import timm
@@ -80,17 +80,17 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
             for batch_num in range(len(preds)):
                 pil_image = torchvision.transforms.functional.to_pil_image(im_to_ecm[batch_num])
                 np_preds = np.array(preds[batch_num].to("cpu"))
-                
+
                 # 処理結果を保存するリスト
                 return_preds = []
                 cropped_images = []
-                
+
                 # np_predsの各bboxでループ
                 for object_bbox in np_preds:
                     crop_image = pil_image.crop((object_bbox[0], object_bbox[1], object_bbox[2], object_bbox[3]))
                     convert_crop_image = convert_tensor(crop_image)
                     cropped_images.append(convert_crop_image)
-                
+
                 # バッチ処理: ecm_modelの入力を一度に行う
                 num_batches = -(-len(cropped_images) // BATCH_SIZE)
                 for i in range(num_batches):
@@ -98,19 +98,19 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
                     end_idx = min((i + 1) * BATCH_SIZE, len(cropped_images))
                     mini_batch = torch.stack(cropped_images[start_idx:end_idx]).to(device)
                     ecm_model_results = ecm_model(mini_batch)
-                    
+
                     # 結果の処理
                     for ecm_model_result, object_bbox in zip(ecm_model_results, np_preds[start_idx:end_idx]):
                         ecm_model_pred_label = torch.argmax(ecm_model_result)
                         ecm_model_pred_label_value = ecm_model_pred_label.item()
-                        
+
                         # ecm_modelの出力が陥没穴(class:0), 検出された物体が陥没穴ではない(class!=0)の場合そのまま追加する。
                         if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
                             return_preds.append(object_bbox)
                         else:
                             object_bbox[-1] = ecm_model_pred_label_value
                             return_preds.append(object_bbox)
-                
+
                 # 最後にpredsを更新
                 preds[batch_num] = torch.from_numpy(np.array(return_preds).astype(np.float32)).to(device)
 
@@ -166,8 +166,8 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
                                 break
 
         # Append statistics (correct, conf, pcls, tcls)
-        stats.append((correct.cpu(), torch.ones_like(pred[:, 4]).cpu(), pred[:, 5].cpu(), tcls))
-        # stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
+        # stats.append((correct.cpu(), torch.ones_like(pred[:, 4]).cpu(), pred[:, 5].cpu(), tcls))
+        stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
 
     # all_ap_per_class
     # i番目のstatsのstats_i
@@ -175,6 +175,7 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
     r_list = []
     f1_list = []
     ap_list = []
+    pr_th = int(pr_th)
     # max_i_list = []
     for i_num in range(len(stats)):
         stats_i = stats[i_num:i_num+1]
@@ -183,20 +184,16 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
         if len(stats_i) and stats_i[0].any():
             p, r, ap, f1, max_i, ap_class = all_ap_per_class_all_class(*stats_i, plot=False, v5_metric=False, save_dir=Path(''), names=names)
             ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
-            mean_p, mean_r, mean_f1, map50, map = p.mean(), r.mean(), f1.mean(), ap50.mean(), ap.mean()
-            nt = np.bincount(stats_i[3].astype(np.int64), minlength=nc)  # number of targets per class
-            mp, mr, mf1, map50, map = p[:, max_i].mean(), r[:, max_i].mean(), f1[:, max_i].mean(), map50, map
-
             # class : pothole
             if pr_th is None:
-                p_list.append(p[:, max_i][0])
-                r_list.append(r[:, max_i][0])
-                f1_list.append(f1_calc(p[:, max_i][0],r[:, max_i][0]))
+                p_list.append(p[0][max_i])
+                r_list.append(r[0][max_i])
+                f1_list.append(f1_calc(p[0][max_i],r[0][max_i]))
                 ap_list.append(ap50[0])
             else:
-                p_list.append(p[:, int(pr_th)][0])
-                r_list.append(r[:, int(pr_th)][0])
-                f1_list.append(f1_calc(p[:, int(pr_th)][0],r[:, int(pr_th)][0]))
+                p_list.append(p[0][pr_th])
+                r_list.append(r[0][pr_th])
+                f1_list.append(f1_calc(p[0][pr_th],r[0][pr_th]))
                 ap_list.append(ap50[0])
 
         else:
@@ -251,7 +248,7 @@ def test(data,
         model = attempt_load(weights, map_location=device)  # load FP32 model
         gs = max(int(model.stride.max()), 32)  # grid size (max stride)
         imgsz = check_img_size(imgsz, s=gs)  # check img_size
-        
+
         if trace:
             model = TracedModel(model, device, imgsz)
 
@@ -260,7 +257,7 @@ def test(data,
     if half:
         model.half()
 
-# =================================================    
+# =================================================
 # # VIT
     ecm_model = timm.create_model('vit_base_patch16_224.augreg_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
@@ -332,9 +329,9 @@ def test(data,
 
     df = pd.DataFrame(pd_to_dict)
     df.to_csv('./ecm/data/ecm_output_prf1.csv.csv')
-    return 
+    return
 
-    
+
 
 
 
