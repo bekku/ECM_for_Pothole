@@ -360,7 +360,7 @@ def test(data,
         # p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
         p, r, ap, f1, max_i, ap_class = all_ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
         if not detection_th==False:
-            max_i = float(detection_th)
+            max_i = int(detection_th)
         print(f"hole(class 0)      meanP : {p[0,:].mean()}, meanR : {r[0,:].mean()}")
         print(f"The confidence level at which f1 is maximal : {max_i}")
         p, r, f1 = p[:, max_i], r[:, max_i], f1[:, max_i]
