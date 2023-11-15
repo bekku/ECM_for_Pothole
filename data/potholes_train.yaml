@@ -1,0 +1,5 @@
+train: ./ecm/data/train_dataset/
+val: ./ecm/data/train_dataset/
+# Classes
+nc: 3  # number of classes
+names: ["hole", "manhole", "shadow"]

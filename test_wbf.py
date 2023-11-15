@@ -154,7 +154,8 @@ def test(data,
          is_coco=False,
          v5_metric=False,
          weights2 = None,
-         seed = 1):
+         seed = 1,
+         detection_th=False):
     # Initialize/load model and set device
     set_seed(int(seed))
     training = model is not None
@@ -174,7 +175,7 @@ def test(data,
         model2 = attempt_load(weights2, map_location=device)  # load FP32 model
         gs = max(int(model.stride.max()), 32)  # grid size (max stride)
         imgsz = check_img_size(imgsz, s=gs)  # check img_size
-        
+
 
     # Half
     half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
@@ -209,7 +210,7 @@ def test(data,
 
     if v5_metric:
         print("Testing with YOLOv5 AP metric...")
-    
+
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
@@ -257,7 +258,7 @@ def test(data,
 
             # WBF結果を上書き
             out = wbf_out
-# ============================================================================================================================       
+# ============================================================================================================================
 
         # Statistics per image
         for si, pred in enumerate(out):
@@ -358,6 +359,8 @@ def test(data,
 # hole(class 0)の性能が最大となるconf値(max_i)を出力できるようにする ===========================================================================
         # p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
         p, r, ap, f1, max_i, ap_class = all_ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
+        if not detection_th==False:
+            max_i = float(detection_th)
         print(f"hole(class 0)      meanP : {p[0,:].mean()}, meanR : {r[0,:].mean()}")
         print(f"The confidence level at which f1 is maximal : {max_i}")
         p, r, f1 = p[:, max_i], r[:, max_i], f1[:, max_i]
@@ -451,6 +454,7 @@ if __name__ == '__main__':
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--weights2', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
     parser.add_argument('--seed', default=1)
+    parser.add_argument('--detection_th', default=False)
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -474,7 +478,8 @@ if __name__ == '__main__':
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
              weights2=opt.weights2,
-             seed=opt.seed
+             seed=opt.seed,
+             detection_th=opt.detection_th
              )
 
     elif opt.task == 'speed':  # speed benchmarks

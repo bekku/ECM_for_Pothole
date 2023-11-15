@@ -154,9 +154,10 @@ def test(data,
          is_coco=False,
          v5_metric=False,
          weights2 = None,
-         seed = 1, 
+         seed = 1,
          ecm_th=False,
-         ecm_path = "./ecm/model_path/ViT_GPU20ep.pth",):
+         ecm_path = "./ecm/model_path/ViT_GPU20ep.pth",
+         detection_th=False):
     # Initialize/load model and set device
     set_seed(int(seed))
     training = model is not None
@@ -176,10 +177,10 @@ def test(data,
         model2 = attempt_load(weights2, map_location=device)  # load FP32 model
         gs = max(int(model.stride.max()), 32)  # grid size (max stride)
         imgsz = check_img_size(imgsz, s=gs)  # check img_size
-        
+
 
 # load model
-# =================================================    
+# =================================================
     # # VIT
     ecm_model = timm.create_model('vit_base_patch16_224.augreg_in21k', pretrained=True, num_classes=3)
     ecm_model = ecm_model.to(device)
@@ -223,7 +224,7 @@ def test(data,
 
     if v5_metric:
         print("Testing with YOLOv5 AP metric...")
-    
+
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
@@ -275,7 +276,7 @@ def test(data,
 
             # WBF結果を上書き
             out = wbf_out
-# ============================================================================================================================  
+# ============================================================================================================================
 # ECM
 # ============================================================================================================================
         preds = copy.deepcopy(out)
@@ -294,17 +295,17 @@ def test(data,
             for batch_num in range(len(preds)):
                 pil_image = torchvision.transforms.functional.to_pil_image(im_to_ecm[batch_num])
                 np_preds = np.array(preds[batch_num].to("cpu"))
-                
+
                 # 処理結果を保存するリスト
                 return_preds = []
                 cropped_images = []
-                
+
                 # np_predsの各bboxでループ
                 for object_bbox in np_preds:
                     crop_image = pil_image.crop((object_bbox[0], object_bbox[1], object_bbox[2], object_bbox[3]))
                     convert_crop_image = convert_tensor(crop_image)
                     cropped_images.append(convert_crop_image)
-                
+
                 # バッチ処理: ecm_modelの入力を一度に行う
                 num_batches = -(-len(cropped_images) // BATCH_SIZE)
                 for i in range(num_batches):
@@ -312,27 +313,27 @@ def test(data,
                     end_idx = min((i + 1) * BATCH_SIZE, len(cropped_images))
                     mini_batch = torch.stack(cropped_images[start_idx:end_idx]).to(device)
                     ecm_model_results = ecm_model(mini_batch)
-                    
+
                     # 結果の処理
                     for ecm_model_result, object_bbox in zip(ecm_model_results, np_preds[start_idx:end_idx]):
                         ecm_model_pred_label = torch.argmax(ecm_model_result)
                         ecm_model_pred_label_value = ecm_model_pred_label.item()
-                        
+
                         if ecm_th:
                             if not (ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_result)).item() >= float(ecm_th)):
                                 ecm_model_pred_label_value = 1
-                        
+
                         if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
                             return_preds.append(object_bbox)
                         else:
                             object_bbox[-1] = ecm_model_pred_label_value
                             return_preds.append(object_bbox)
-                
+
                 # 最後にpredsを更新
                 preds[batch_num] = torch.from_numpy(np.array(return_preds).astype(np.float32)).to(device)
 
         out = preds
-# ============================================================================================================================     
+# ============================================================================================================================
 
         # Statistics per image
         for si, pred in enumerate(out):
@@ -433,6 +434,8 @@ def test(data,
 # hole(class 0)の性能が最大となるconf値(max_i)を出力できるようにする ===========================================================================
         # p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
         p, r, ap, f1, max_i, ap_class = all_ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
+        if not detection_th==False:
+            max_i = float(detection_th)
         print(f"hole(class 0)      meanP : {p[0,:].mean()}, meanR : {r[0,:].mean()}")
         print(f"The confidence level at which f1 is maximal : {max_i}")
         p, r, f1 = p[:, max_i], r[:, max_i], f1[:, max_i]
@@ -528,6 +531,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', default=1)
     parser.add_argument('--ecm_th', default=False)
     parser.add_argument('--ecm_path', default="./ecm/model_path/ViT_GPU20ep.pth")
+    parser.add_argument('--detection_th', default=False)
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -553,7 +557,8 @@ if __name__ == '__main__':
              weights2=opt.weights2,
              seed=opt.seed,
              ecm_th=opt.ecm_th,
-             ecm_path=opt.ecm_path
+             ecm_path=opt.ecm_path,
+             detection_th=opt.detection_th
              )
 
     elif opt.task == 'speed':  # speed benchmarks

@@ -40,7 +40,8 @@ def test(data,
          half_precision=True,
          trace=False,
          is_coco=False,
-         v5_metric=False):
+         v5_metric=False,
+         detection_th = False):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -58,7 +59,7 @@ def test(data,
         model = attempt_load(weights, map_location=device)  # load FP32 model
         gs = max(int(model.stride.max()), 32)  # grid size (max stride)
         imgsz = check_img_size(imgsz, s=gs)  # check img_size
-    
+
 
     # Half
     half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
@@ -90,7 +91,7 @@ def test(data,
 
     if v5_metric:
         print("Testing with YOLOv5 AP metric...")
-    
+
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
     names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
@@ -222,6 +223,8 @@ def test(data,
 # hole(class 0)の性能が最大となるconf値(max_i)を出力できるようにする ===========================================================================
         # p, r, ap, f1, ap_class = ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
         p, r, ap, f1, max_i, ap_class = all_ap_per_class(*stats, plot=plots, v5_metric=v5_metric, save_dir=save_dir, names=names)
+        if not detection_th==False:
+            max_i = float(detection_th)
         print(f"hole(class 0)      meanP : {p[0,:].mean()}, meanR : {r[0,:].mean()}")
         print(f"The confidence level at which f1 is maximal : {max_i}")
         p, r, f1 = p[:, max_i], r[:, max_i], f1[:, max_i]
@@ -313,6 +316,7 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--detection_th', default=False)
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('coco.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -334,7 +338,8 @@ if __name__ == '__main__':
              save_hybrid=opt.save_hybrid,
              save_conf=opt.save_conf,
              trace=not opt.no_trace,
-             v5_metric=opt.v5_metric
+             v5_metric=opt.v5_metric,
+             detection_th=opt.detection_th
              )
 
     elif opt.task == 'speed':  # speed benchmarks
