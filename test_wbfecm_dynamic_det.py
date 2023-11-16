@@ -6,9 +6,10 @@ from threading import Thread
 
 import numpy as np
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import yaml
 from tqdm import tqdm
-import random
 
 from models.experimental import attempt_load
 from utils.datasets import create_dataloader
@@ -20,9 +21,13 @@ from utils.torch_utils import select_device, time_synchronized, TracedModel
 import timm
 import copy
 import torchvision
+import random
+
+from torch.utils.data import Dataset
+from PIL import Image
+import cv2
+from efficientnet_pytorch import EfficientNet
 import torch.nn as nn
-from ensemble_boxes import *
-import pandas as pd
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -33,102 +38,6 @@ def set_seed(seed):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
     return None
-
-# WBF Func
-# ==================================================================================================================
-from ensemble_boxes import *
-
-import cv2
-from matplotlib import pyplot as plt
-def detect_by_yolov7(model, input_image="../inference/images/horses.jpg"):
-    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
-    # Run the Inference and draw predicted bboxes
-    results = model(input_image)
-    preds_xyxy = results.pandas().xyxy[0]
-    return preds_xyxy
-
-def draw_bounding_box(image, bbox, color=(0, 255, 0), thickness=2):
-    bbox = list(map(int, bbox))
-    result_image = copy.deepcopy(image)
-    xmin, ymin, xmax, ymax = bbox
-    cv2.rectangle(result_image, (xmin, ymin), (xmax, ymax), color, thickness)
-    return result_image
-
-def det_image_show(input_image, preds_xyxy):
-    # 画像を読み込む
-    image = cv2.imread(input_image)
-    if image is None:
-        print("画像が読み込めませんでした。ファイルパスを確認してください。")
-    # バウンディングボックスを描画した画像を取得
-    for i, row in preds_xyxy.iterrows():
-        bbox = list(row[0:4])
-        image = draw_bounding_box(image, bbox)
-    # 画像を表示
-    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    plt.axis('off')  # 軸を非表示にする
-    plt.show()
-    return None
-
-def get_img_size(path):
-    img_size = (cv2.imread(path).shape[1], cv2.imread(path).shape[0])
-    return img_size
-
-def bbox_norm_from_preds(pred_np_list, img_size):
-    pred_np_list_norm = copy.deepcopy(pred_np_list)
-    for pred_np in pred_np_list_norm:
-        # 正規化
-        pred_np[:,0]/=img_size[0]
-        pred_np[:,1]/=img_size[1]
-        pred_np[:,2]/=img_size[0]
-        pred_np[:,3]/=img_size[1]
-        # 0~1で埋め込む(yoloのbboxの出力は-を含む)
-        pred_np[:,0] = pad_bbox_0to1(pred_np[:,0])
-        pred_np[:,1] = pad_bbox_0to1(pred_np[:,1])
-        pred_np[:,2] = pad_bbox_0to1(pred_np[:,2])
-        pred_np[:,3] = pad_bbox_0to1(pred_np[:,3])
-
-    return pred_np_list_norm
-
-def create_wfb_list(pred_np_list):
-    boxes_list = []
-    scores_list = []
-    labels_list = []
-    for pred_index, pred_np in enumerate(pred_np_list):
-        boxes_list.append([])
-        scores_list.append([])
-        labels_list.append([])
-        for row in pred_np:
-            bbox = row[0:4]
-            score = row[4]
-            label = row[5]
-            boxes_list[pred_index].append(bbox.tolist())
-            scores_list[pred_index].append(score)
-            labels_list[pred_index].append(label)
-
-    return boxes_list, scores_list, labels_list
-
-def pad_bbox_0to1(bbox_col):
-    ret_bbox_col = copy.deepcopy(bbox_col)
-    ret_bbox_col = np.maximum(ret_bbox_col, 0)
-    ret_bbox_col = np.minimum(ret_bbox_col, 1)
-    return ret_bbox_col
-
-
-def get_pred_xyxy_from_result_wbf(norm_boxes, scores, labels, img_size):
-    boxes = copy.deepcopy(norm_boxes)
-    # 逆正規化
-    boxes[:,0]*=img_size[0]
-    boxes[:,1]*=img_size[1]
-    boxes[:,2]*=img_size[0]
-    boxes[:,3]*=img_size[1]
-    # 列毎に, 0より小さい場合は0を埋める.1より大きい場合は1を埋める.
-    ret_pred_xyxy = pd.DataFrame(boxes, columns=["xmin", "xmin", "xmax", "ymax"])
-    ret_pred_xyxy["confidence"] = scores
-    ret_pred_xyxy["class"] = labels
-    ret_pred_xyxy["class"] = ret_pred_xyxy["class"].astype(int)
-    return ret_pred_xyxy
-# ==================================================================================================================
-
 
 def test(data,
          weights=None,
@@ -153,13 +62,14 @@ def test(data,
          trace=False,
          is_coco=False,
          v5_metric=False,
-         weights2 = None,
-         seed = 1,
-         ecm_th=False,
+         weights2=None,
+         router_th=False,
          ecm_path = "./ecm/model_path/ViT_GPU20ep.pth",
+         router_path = "./ecm/model_path/router.pth",
+         seed = 1,
          detection_th=False):
-    # Initialize/load model and set device
     set_seed(int(seed))
+    # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
         device = next(model.parameters()).device  # get model device
@@ -178,24 +88,64 @@ def test(data,
         gs = max(int(model.stride.max()), 32)  # grid size (max stride)
         imgsz = check_img_size(imgsz, s=gs)  # check img_size
 
-
-# load model
-# =================================================
-    # # VIT
-    ecm_model = timm.create_model('vit_base_patch16_224.augreg_in21k', pretrained=True, num_classes=3)
-    ecm_model = ecm_model.to(device)
-    params = torch.load(ecm_path)
-    ecm_model.load_state_dict(params)
-    ecm_model.eval()
-    ecm_model.to(device)
-    softmax_func = nn.Softmax(dim=1)
-# =================================================
+        # if trace:
+        #     model = TracedModel(model, device, imgsz)
 
     # Half
     half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
     if half:
         model.half()
         model2.half()
+
+# load model
+# =================================================
+    # # VIT
+    ecm_model = timm.create_model('vit_base_patch16_224.augreg_in21k', pretrained=True, num_classes=3)
+    ecm_model = ecm_model.to(device)
+    # ecm_path = "./ecm/model_path/ViT_GPU20ep.pth"
+    params = torch.load(ecm_path)
+    ecm_model.load_state_dict(params)
+    ecm_model.eval()
+    ecm_model.to(device)
+
+    # router
+    def sigmoid(logits, hard=False, threshold=0.5):
+        y_soft = logits.sigmoid()
+        if hard:
+            indices = (y_soft < threshold).nonzero(as_tuple=True)
+            y_hard = torch.zeros_like(logits, memory_format=torch.legacy_contiguous_format)
+            y_hard[indices[0], indices[1]] = 1.0
+            ret = y_hard - y_soft.detach() + y_soft
+        else:
+            ret = y_soft
+        return ret
+    class AdaptiveRouter(nn.Module):
+        def __init__(self, features_channels, out_channels, reduction=4):
+            super(AdaptiveRouter, self).__init__()
+            self.inp = sum(features_channels)
+            self.oup = out_channels
+            self.reduction = reduction
+            self.layer1 = nn.Conv2d(self.inp, self.inp//self.reduction, kernel_size=1, bias=True)
+            self.layer2 = nn.Conv2d(self.inp//self.reduction, self.oup, kernel_size=1, bias=True)
+
+        def forward(self, xs, thres=0.5):
+            xs = [x.mean(dim=(2, 3), keepdim=True) for x in xs]
+            xs = torch.cat(xs, dim=1)
+            xs = self.layer1(xs)
+            xs = F.relu(xs, inplace=True)
+            xs = self.layer2(xs).flatten(1)
+            xs = xs.sigmoid()
+            return xs
+    # TODO:yolov7以外の場合は変更
+    # yolov7.pt
+    router_ins = [2, 11, 24, 37, 50]
+    router_channels = [64, 256, 512, 1024, 1024]
+    router = AdaptiveRouter(router_channels, 1).half().to(device)
+
+    router_params = torch.load(router_path)
+    router.load_state_dict(router_params)
+    router.eval()
+# =================================================
 
     # Configure
     model.eval()
@@ -235,7 +185,6 @@ def test(data,
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         img = img.to(device, non_blocking=True)
-# iumage to ECM
 # ====================================
         im_to_ecm = copy.deepcopy(img)
 # ====================================
@@ -276,11 +225,10 @@ def test(data,
 
             # WBF結果を上書き
             out = wbf_out
-# ============================================================================================================================
 # ECM
 # ============================================================================================================================
         preds = copy.deepcopy(out)
-        if True:
+        if float(score[0].item())>=float(router_th):
             # 予め変換処理を作成
             convert_tensor = torchvision.transforms.Compose([
                 torchvision.transforms.ToTensor(),
@@ -289,7 +237,7 @@ def test(data,
             ])
             softmax_func = torch.nn.Softmax(dim=0)
 
-            BATCH_SIZE = 45  # 適切なバッチサイズに調整してください
+            BATCH_SIZE = 50  # 適切なバッチサイズに調整してください
 
             # predsをバッチで処理
             for batch_num in range(len(preds)):
@@ -318,10 +266,6 @@ def test(data,
                     for ecm_model_result, object_bbox in zip(ecm_model_results, np_preds[start_idx:end_idx]):
                         ecm_model_pred_label = torch.argmax(ecm_model_result)
                         ecm_model_pred_label_value = ecm_model_pred_label.item()
-
-                        if ecm_th:
-                            if not (ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_result)).item() >= float(ecm_th)):
-                                ecm_model_pred_label_value = 1
 
                         if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
                             return_preds.append(object_bbox)
@@ -528,9 +472,10 @@ if __name__ == '__main__':
     parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--weights2', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
-    parser.add_argument('--seed', default=1)
-    parser.add_argument('--ecm_th', default=False)
+    parser.add_argument('--router_th')
     parser.add_argument('--ecm_path', default="./ecm/model_path/ViT_GPU20ep.pth")
+    parser.add_argument('--router_path', default="./ecm/model_path/router.pth")
+    parser.add_argument('--seed', default=1)
     parser.add_argument('--detection_th', default=False)
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
@@ -555,10 +500,11 @@ if __name__ == '__main__':
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
              weights2=opt.weights2,
-             seed=opt.seed,
-             ecm_th=opt.ecm_th,
+             router_th=opt.router_th,
              ecm_path=opt.ecm_path,
-             detection_th=opt.detection_th
+             router_path=opt.router_path,
+             seed=opt.seed,
+             detection_th=opt.detection_th,
              )
 
     elif opt.task == 'speed':  # speed benchmarks

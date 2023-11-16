@@ -1,0 +1,528 @@
+import argparse
+import json
+import os
+from pathlib import Path
+from threading import Thread
+
+import numpy as np
+import torch
+import yaml
+from tqdm import tqdm
+
+from models.experimental import attempt_load
+from utils.datasets import create_dataloader
+from utils.general import coco80_to_coco91_class, check_dataset, check_file, check_img_size, check_requirements, \
+    box_iou, non_max_suppression, scale_coords, xyxy2xywh, xywh2xyxy, set_logging, increment_path, colorstr
+from utils.metrics import ap_per_class, all_ap_per_class, ConfusionMatrix, all_ap_per_class_all_class
+from utils.plots import plot_images, output_to_target, plot_study_txt
+from utils.torch_utils import select_device, time_synchronized, TracedModel
+import timm
+import copy
+import torchvision
+import pandas as pd
+
+def f1_calc(a,b):
+    if a+b==0:
+      return 0
+    else:
+      return 2*a*b/(a+b)
+
+# WBF Func
+# ==================================================================================================================
+from ensemble_boxes import *
+
+import cv2
+from matplotlib import pyplot as plt
+def detect_by_yolov7(model, input_image="../inference/images/horses.jpg"):
+    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+    # Run the Inference and draw predicted bboxes
+    results = model(input_image)
+    preds_xyxy = results.pandas().xyxy[0]
+    return preds_xyxy
+
+def draw_bounding_box(image, bbox, color=(0, 255, 0), thickness=2):
+    bbox = list(map(int, bbox))
+    result_image = copy.deepcopy(image)
+    xmin, ymin, xmax, ymax = bbox
+    cv2.rectangle(result_image, (xmin, ymin), (xmax, ymax), color, thickness)
+    return result_image
+
+def det_image_show(input_image, preds_xyxy):
+    # 画像を読み込む
+    image = cv2.imread(input_image)
+    if image is None:
+        print("画像が読み込めませんでした。ファイルパスを確認してください。")
+    # バウンディングボックスを描画した画像を取得
+    for i, row in preds_xyxy.iterrows():
+        bbox = list(row[0:4])
+        image = draw_bounding_box(image, bbox)
+    # 画像を表示
+    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    plt.axis('off')  # 軸を非表示にする
+    plt.show()
+    return None
+
+def get_img_size(path):
+    img_size = (cv2.imread(path).shape[1], cv2.imread(path).shape[0])
+    return img_size
+
+def bbox_norm_from_preds(pred_np_list, img_size):
+    pred_np_list_norm = copy.deepcopy(pred_np_list)
+    for pred_np in pred_np_list_norm:
+        # 正規化
+        pred_np[:,0]/=img_size[0]
+        pred_np[:,1]/=img_size[1]
+        pred_np[:,2]/=img_size[0]
+        pred_np[:,3]/=img_size[1]
+        # 0~1で埋め込む(yoloのbboxの出力は-を含む)
+        pred_np[:,0] = pad_bbox_0to1(pred_np[:,0])
+        pred_np[:,1] = pad_bbox_0to1(pred_np[:,1])
+        pred_np[:,2] = pad_bbox_0to1(pred_np[:,2])
+        pred_np[:,3] = pad_bbox_0to1(pred_np[:,3])
+
+    return pred_np_list_norm
+
+def create_wfb_list(pred_np_list):
+    boxes_list = []
+    scores_list = []
+    labels_list = []
+    for pred_index, pred_np in enumerate(pred_np_list):
+        boxes_list.append([])
+        scores_list.append([])
+        labels_list.append([])
+        for row in pred_np:
+            bbox = row[0:4]
+            score = row[4]
+            label = row[5]
+            boxes_list[pred_index].append(bbox.tolist())
+            scores_list[pred_index].append(score)
+            labels_list[pred_index].append(label)
+
+    return boxes_list, scores_list, labels_list
+
+def pad_bbox_0to1(bbox_col):
+    ret_bbox_col = copy.deepcopy(bbox_col)
+    ret_bbox_col = np.maximum(ret_bbox_col, 0)
+    ret_bbox_col = np.minimum(ret_bbox_col, 1)
+    return ret_bbox_col
+
+
+def get_pred_xyxy_from_result_wbf(norm_boxes, scores, labels, img_size):
+    boxes = copy.deepcopy(norm_boxes)
+    # 逆正規化
+    boxes[:,0]*=img_size[0]
+    boxes[:,1]*=img_size[1]
+    boxes[:,2]*=img_size[0]
+    boxes[:,3]*=img_size[1]
+    # 列毎に, 0より小さい場合は0を埋める.1より大きい場合は1を埋める.
+    ret_pred_xyxy = pd.DataFrame(boxes, columns=["xmin", "xmin", "xmax", "ymax"])
+    ret_pred_xyxy["confidence"] = scores
+    ret_pred_xyxy["class"] = labels
+    ret_pred_xyxy["class"] = ret_pred_xyxy["class"].astype(int)
+    return ret_pred_xyxy
+# ==================================================================================================================
+
+# Model validation metrics
+
+from utils import general
+from utils.metrics import *
+
+# PrecisonとRecall, F1の計算を行う関数
+def p_r_f1_calc(ecm, model, model2, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=None, conf_thres=0.001, iou_thres=0.65):
+    # パラメータ
+    model.eval()
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    confusion_matrix = ConfusionMatrix(nc=nc)
+    names = {k: v for k, v in enumerate(model.names if hasattr(model, 'names') else model.module.names)}
+    p, r, f1, mp, mr, map50, map = 0., 0., 0., 0., 0., 0., 0.
+    stats, ap, ap_class = [], [], []
+
+    img = img.to(device, non_blocking=True)
+# ====================================
+    im_to_ecm = copy.deepcopy(img)
+# ====================================
+    img = img.half() if half else img.float()  # uint8 to fp16/32
+    img /= 255.0  # 0 - 255 to 0.0 - 1.0
+    targets = targets.to(device)
+    nb, _, height, width = img.shape  # batch size, channels, height, width
+
+    with torch.no_grad():
+        # Run model
+        t = time_synchronized()
+        out, train_out = model(img, augment=False)  # inference and training outputs
+        out2, train_out2 = model2(img, augment=False)  # inference and training outputs
+
+        # Run NMS
+        targets[:, 2:] *= torch.Tensor([width, height, width, height]).to(device)  # to pixels
+        lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if False else []  # for autolabelling
+        out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
+        out2 = non_max_suppression(out2, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
+# WBF
+# ============================================================================================================================
+        wbf_out = []
+        for batch_num in range(len(out)):
+            wbf_pred_np_list = [out[batch_num].to('cpu').detach().numpy().copy(), out2[batch_num].to('cpu').detach().numpy().copy()]
+            wbf_pred_np_list_norm = bbox_norm_from_preds(wbf_pred_np_list, img_size = (width, height))
+            wbf_boxes_list, wbf_scores_list, labels_list = create_wfb_list(wbf_pred_np_list_norm)
+            # wbf
+            wbf_weights = [1, 1]
+            wbf_iou_thr = 0.5
+            wbf_skip_box_thr = 0.0001
+            wbf_boxes, wbf_scores, wbf_labels = weighted_boxes_fusion(wbf_boxes_list, wbf_scores_list, labels_list, weights=wbf_weights, iou_thr=wbf_iou_thr, skip_box_thr=wbf_skip_box_thr)
+            # convert results wbf to pred_xyxy
+            pred_xyxy_wbf = get_pred_xyxy_from_result_wbf(wbf_boxes, wbf_scores, wbf_labels, (width, height))
+            wbf_out.append(torch.tensor(pred_xyxy_wbf.to_numpy()).to(device))
+
+        # WBF結果を上書き
+        out = wbf_out
+
+# ECM
+# ============================================================================================================================
+    if ecm:
+        preds = copy.deepcopy(out)
+        if True:
+            # 予め変換処理を作成
+            convert_tensor = torchvision.transforms.Compose([
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Resize((224, 224), antialias=None),
+                torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+            ])
+            softmax_func = torch.nn.Softmax(dim=0)
+
+            BATCH_SIZE = 45  # 適切なバッチサイズに調整してください
+
+            # predsをバッチで処理
+            for batch_num in range(len(preds)):
+                pil_image = torchvision.transforms.functional.to_pil_image(im_to_ecm[batch_num])
+                np_preds = np.array(preds[batch_num].to("cpu"))
+
+                # 処理結果を保存するリスト
+                return_preds = []
+                cropped_images = []
+
+                # np_predsの各bboxでループ
+                for object_bbox in np_preds:
+                    crop_image = pil_image.crop((object_bbox[0], object_bbox[1], object_bbox[2], object_bbox[3]))
+                    convert_crop_image = convert_tensor(crop_image)
+                    cropped_images.append(convert_crop_image)
+
+                # バッチ処理: ecm_modelの入力を一度に行う
+                num_batches = -(-len(cropped_images) // BATCH_SIZE)
+                for i in range(num_batches):
+                    start_idx = i * BATCH_SIZE
+                    end_idx = min((i + 1) * BATCH_SIZE, len(cropped_images))
+                    mini_batch = torch.stack(cropped_images[start_idx:end_idx]).to(device)
+                    ecm_model_results = ecm_model(mini_batch)
+
+                    # 結果の処理
+                    for ecm_model_result, object_bbox in zip(ecm_model_results, np_preds[start_idx:end_idx]):
+                        ecm_model_pred_label = torch.argmax(ecm_model_result)
+                        ecm_model_pred_label_value = ecm_model_pred_label.item()
+
+                        # ecm_modelの出力が陥没穴(class:0), 検出された物体が陥没穴ではない(class!=0)の場合そのまま追加する。
+                        if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
+                            return_preds.append(object_bbox)
+                        else:
+                            object_bbox[-1] = ecm_model_pred_label_value
+                            return_preds.append(object_bbox)
+
+                # 最後にpredsを更新
+                preds[batch_num] = torch.from_numpy(np.array(return_preds).astype(np.float32)).to(device)
+
+        out = preds
+# ============================================================================================================================
+
+
+    # Statistics per image
+    for si, pred in enumerate(out):
+        labels = targets[targets[:, 0] == si, 1:]
+        nl = len(labels)
+        tcls = labels[:, 0].tolist() if nl else []  # target class
+        path = Path(paths[si])
+        if len(pred) == 0:
+            # if nl:
+            #     stats.append((torch.zeros(0, niou, dtype=torch.bool), torch.Tensor(), torch.Tensor(), tcls))
+            stats.append((torch.zeros(0, niou, dtype=torch.bool), torch.Tensor(), torch.Tensor(), tcls))
+            continue
+
+        # Predictions
+        predn = pred.clone()
+        scale_coords(img[si].shape[1:], predn[:, :4], shapes[si][0], shapes[si][1])  # native-space pred
+
+        # Assign all predictions as incorrect
+        correct = torch.zeros(pred.shape[0], niou, dtype=torch.bool, device=device)
+        if nl:
+            detected = []  # target indices
+            tcls_tensor = labels[:, 0]
+
+            # target boxes
+            tbox = xywh2xyxy(labels[:, 1:5])
+            scale_coords(img[si].shape[1:], tbox, shapes[si][0], shapes[si][1])  # native-space labels
+
+            # Per target class
+            for cls in torch.unique(tcls_tensor):
+                ti = (cls == tcls_tensor).nonzero(as_tuple=False).view(-1)  # prediction indices
+                pi = (cls == pred[:, 5]).nonzero(as_tuple=False).view(-1)  # target indices
+
+                # Search for detections
+                if pi.shape[0]:
+                    # Prediction to target ious
+                    ious, i = box_iou(predn[pi, :4], tbox[ti]).max(1)  # best ious, indices
+
+                    # Append detections
+                    detected_set = set()
+                    for j in (ious > iouv[0]).nonzero(as_tuple=False):
+                        d = ti[i[j]]  # detected target
+                        if d.item() not in detected_set:
+                            detected_set.add(d.item())
+                            detected.append(d)
+                            correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn
+                            if len(detected) == nl:  # all targets already located in image
+                                break
+
+        # Append statistics (correct, conf, pcls, tcls)
+        # stats.append((correct.cpu(), torch.ones_like(pred[:, 4]).cpu(), pred[:, 5].cpu(), tcls))
+        stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
+
+    # all_ap_per_class
+    # i番目のstatsのstats_i
+    p_list = []
+    r_list = []
+    f1_list = []
+    ap_list = []
+    pr_th = int(pr_th)
+    # max_i_list = []
+    for i_num in range(len(stats)):
+        stats_i = stats[i_num:i_num+1]
+        stats_i = [np.concatenate(x, 0) for x in zip(*stats_i)]  # to numpy
+        # Compute statistics
+        if len(stats_i) and stats_i[0].any():
+            p, r, ap, f1, max_i, ap_class = all_ap_per_class_all_class(*stats_i, plot=False, v5_metric=False, save_dir=Path(''), names=names)
+            ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
+            # class : pothole
+            if pr_th is None:
+                p_list.append(p[0][max_i])
+                r_list.append(r[0][max_i])
+                f1_list.append(f1_calc(p[0][max_i],r[0][max_i]))
+                ap_list.append(ap50[0])
+            else:
+                p_list.append(p[0][pr_th])
+                r_list.append(r[0][pr_th])
+                f1_list.append(f1_calc(p[0][pr_th],r[0][pr_th]))
+                ap_list.append(ap50[0])
+
+        else:
+            nt = torch.zeros(1)
+            p_list.append(0.0)
+            r_list.append(0.0)
+            f1_list.append(0.0)
+            ap_list.append(0.0)
+    return torch.tensor(p_list), torch.tensor(r_list), torch.tensor(f1_list), torch.tensor(ap_list)
+
+
+# 実行部分
+def test(data,
+         weights=None,
+         batch_size=32,
+         imgsz=640,
+         conf_thres=0.001,
+         iou_thres=0.6,  # for NMS
+         save_json=False,
+         single_cls=False,
+         augment=False,
+         verbose=False,
+         model=None,
+         dataloader=None,
+         save_dir=Path(''),  # for saving images
+         save_txt=False,  # for auto-labelling
+         save_hybrid=False,  # for hybrid auto-labelling
+         save_conf=False,  # save auto-label confidences
+         plots=True,
+         wandb_logger=None,
+         compute_loss=None,
+         half_precision=True,
+         trace=False,
+         is_coco=False,
+         v5_metric=False,
+         weights2=None,
+         pr_conf_yolo=0,
+         pr_conf_yolo_ecm=0):
+    # Initialize/load model and set device
+    training = model is not None
+    if training:  # called by train.py
+        device = next(model.parameters()).device  # get model device
+
+    else:  # called directly
+        set_logging()
+        device = select_device(opt.device, batch_size=batch_size)
+
+        # Directories
+        save_dir = Path(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # increment run
+        (save_dir / 'labels' if save_txt else save_dir).mkdir(parents=True, exist_ok=True)  # make dir
+
+        # Load model
+        model = attempt_load(weights, map_location=device)  # load FP32 model
+        model2 = attempt_load(weights2, map_location=device)  # load FP32 model
+        gs = max(int(model.stride.max()), 32)  # grid size (max stride)
+        imgsz = check_img_size(imgsz, s=gs)  # check img_size
+
+        if trace:
+            model = TracedModel(model, device, imgsz)
+
+    # Half
+    half = device.type != 'cpu' and half_precision  # half precision only supported on CUDA
+    if half:
+        model.half()
+        model2.half()
+
+# =================================================
+# # VIT
+    ecm_model = timm.create_model('vit_base_patch16_224.augreg_in21k', pretrained=True, num_classes=3)
+    ecm_model = ecm_model.to(device)
+    try:
+        path = "./ecm/model_path/ViT_GPU20ep.pth"
+        params = torch.load(path)
+        ecm_model.load_state_dict(params)
+    except:
+        path = "./ecm/model_path/ViT_CPU20ep.pth"
+        params = torch.load(path)
+        ecm_model.load_state_dict(params)
+    ecm_model.eval()
+    ecm_model.to(device)
+# =================================================
+
+    # Configure
+    model.eval()
+    model2.eval()
+    if isinstance(data, str):
+        is_coco = data.endswith('potholes.yaml')
+        with open(data) as f:
+            data = yaml.load(f, Loader=yaml.SafeLoader)
+    check_dataset(data)  # check
+    nc = 1 if single_cls else int(data['nc'])  # number of classes
+    iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
+    niou = iouv.numel()
+
+    # Logging
+    log_imgs = 0
+    if wandb_logger and wandb_logger.wandb:
+        log_imgs = min(wandb_logger.log_imgs, 100)
+    # Dataloader
+    if not training:
+        if device.type != 'cpu':
+            model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
+            model2(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model2.parameters())))  # run once
+        task = opt.task if opt.task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
+        dataloader = create_dataloader(data[task], imgsz, batch_size, gs, opt, pad=0.5, rect=True,
+                                       prefix=colorstr(f'{task}: '))[0]
+
+
+    seen = 0
+    confusion_matrix = ConfusionMatrix(nc=nc)
+    coco91class = coco80_to_coco91_class()
+    p, r, f1, mp, mr, map50, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
+    loss = torch.zeros(3, device=device)
+    jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
+
+    pd_to_dict = dict()
+    col_list = ['paths',
+                'model_p', 'model_r', 'model_f1','model_ap',
+                'ecm_p', 'ecm_r', 'ecm_f1','ecm_ap']
+    for col in col_list:
+        pd_to_dict[col] = []
+
+    for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader)):
+        model_p, model_r, model_f1, model_ap = p_r_f1_calc(False, model, model2, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=pr_conf_yolo, conf_thres=conf_thres, iou_thres=0.65)
+        ecm_p, ecm_r, ecm_f1, ecm_ap = p_r_f1_calc(True, model, model2, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=pr_conf_yolo_ecm, conf_thres=conf_thres, iou_thres=0.65)
+
+        for bi in range(len(img)):
+            pd_to_dict['paths'].append(paths[bi])
+            pd_to_dict['model_p'].append(model_p[bi].item())
+            pd_to_dict['model_r'].append(model_r[bi].item())
+            pd_to_dict['model_f1'].append(model_f1[bi].item())
+            pd_to_dict['model_ap'].append(model_ap[bi].item())
+
+            pd_to_dict['ecm_p'].append(ecm_p[bi].item())
+            pd_to_dict['ecm_r'].append(ecm_r[bi].item())
+            pd_to_dict['ecm_f1'].append(ecm_f1[bi].item())
+            pd_to_dict['ecm_ap'].append(ecm_ap[bi].item())
+
+    df = pd.DataFrame(pd_to_dict)
+    df.to_csv('./ecm/data/ecm_output_prf1.csv.csv')
+    return
+
+
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(prog='test.py')
+    parser.add_argument('--weights', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
+    parser.add_argument('--data', type=str, default='potholes.yaml', help='*.data path')
+    parser.add_argument('--batch-size', type=int, default=32, help='size of each image batch')
+    parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
+    parser.add_argument('--conf-thres', type=float, default=0.001, help='object confidence threshold')
+    parser.add_argument('--iou-thres', type=float, default=0.65, help='IOU threshold for NMS')
+    parser.add_argument('--task', default='val', help='train, val, test, speed or study')
+    parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
+    parser.add_argument('--single-cls', action='store_true', help='treat as single-class dataset')
+    parser.add_argument('--augment', action='store_true', help='augmented inference')
+    parser.add_argument('--verbose', action='store_true', help='report mAP by class')
+    parser.add_argument('--save-txt', action='store_true', help='save results to *.txt')
+    parser.add_argument('--save-hybrid', action='store_true', help='save label+prediction hybrid results to *.txt')
+    parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels')
+    parser.add_argument('--save-json', action='store_true', help='save a cocoapi-compatible JSON results file')
+    parser.add_argument('--project', default='runs/test', help='save to project/name')
+    parser.add_argument('--name', default='exp', help='save to project/name')
+    parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--no-trace', action='store_true', help='don`t trace model')
+    parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--weights2', nargs='+', type=str, default='yolov7.pt', help='model.pt path(s)')
+    parser.add_argument('--pr_conf_yolo')
+    parser.add_argument('--pr_conf_yolo_ecm')
+    opt = parser.parse_args()
+    opt.save_json |= opt.data.endswith('potholes.yaml')
+    opt.data = check_file(opt.data)  # check file
+    print(opt)
+    #check_requirements()
+
+    if opt.task in ('train', 'val', 'test'):  # run normally
+        test(opt.data,
+             opt.weights,
+             opt.batch_size,
+             opt.img_size,
+             opt.conf_thres,
+             opt.iou_thres,
+             opt.save_json,
+             opt.single_cls,
+             opt.augment,
+             opt.verbose,
+             save_txt=opt.save_txt | opt.save_hybrid,
+             save_hybrid=opt.save_hybrid,
+             save_conf=opt.save_conf,
+             trace=not opt.no_trace,
+             v5_metric=opt.v5_metric,
+             weights2=opt.weights2,
+             pr_conf_yolo=opt.pr_conf_yolo,
+             pr_conf_yolo_ecm=opt.pr_conf_yolo_ecm,
+             )
+
+    elif opt.task == 'speed':  # speed benchmarks
+        for w in opt.weights:
+            test(opt.data, w, opt.batch_size, opt.img_size, 0.25, 0.45, save_json=False, plots=False, v5_metric=opt.v5_metric)
+
+    elif opt.task == 'study':  # run over a range of settings and save/plot
+        # python test.py --task study --data coco.yaml --iou 0.65 --weights yolov7.pt
+        x = list(range(256, 1536 + 128, 128))  # x axis (image sizes)
+        for w in opt.weights:
+            f = f'study_{Path(opt.data).stem}_{Path(w).stem}.txt'  # filename to save to
+            y = []  # y axis
+            for i in x:  # img-size
+                print(f'\nRunning {f} point {i}...')
+                r, _, t = test(opt.data, w, opt.batch_size, i, opt.conf_thres, opt.iou_thres, opt.save_json,
+                               plots=False, v5_metric=opt.v5_metric)
+                y.append(r + t)  # results and times
+            np.savetxt(f, y, fmt='%10.4g')  # save
+        os.system('zip -r study.zip study_*.txt')
+        plot_study_txt(x=x)  # plot
