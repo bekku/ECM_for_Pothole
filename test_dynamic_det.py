@@ -263,7 +263,7 @@ def test(data,
 
         out = preds
 # ============================================================================================================================
-        detection_time_ret += (detection_time_now-time.perf_counter())
+        detection_time_ret += (time.perf_counter()-detection_time_now)
         detection_time_now = time.perf_counter()
         # Statistics per image
         for si, pred in enumerate(out):
