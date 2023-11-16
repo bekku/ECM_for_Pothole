@@ -23,6 +23,7 @@ import torchvision
 import torch.nn as nn
 from ensemble_boxes import *
 import pandas as pd
+import time
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -219,6 +220,8 @@ def test(data,
     p, r, f1, mp, mr, map50, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
+    detection_time_ret = 0
+    detection_time_now = time.perf_counter()
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         img = img.to(device, non_blocking=True)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -259,7 +262,8 @@ def test(data,
             # WBF結果を上書き
             out = wbf_out
 # ============================================================================================================================
-
+        detection_time_ret += (detection_time_now-time.perf_counter())
+        detection_time_now = time.perf_counter()
         # Statistics per image
         for si, pred in enumerate(out):
             labels = targets[targets[:, 0] == si, 1:]
@@ -427,6 +431,9 @@ def test(data,
     maps = np.zeros(nc) + map
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
+    print("- 実行時間 - ")
+    print(detection_time_ret)
+    print()
     return (mp, mr, map50, map, *(loss.cpu() / len(dataloader)).tolist()), maps, t
 
 
