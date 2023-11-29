@@ -68,7 +68,7 @@ def test(data,
          router_path = "./ecm/model_path/router.pth",
          seed = 1,
          detection_th=False,
-         ecm_th=False):
+         visualization=False):
     set_seed(int(seed))
     # Initialize/load model and set device
     training = model is not None
@@ -183,7 +183,6 @@ def test(data,
     detection_time_ret = 0
     detection_time_now = time.perf_counter()
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
-        detection_time_now = time.perf_counter()
         img = img.to(device, non_blocking=True)
 # ====================================
         im_to_ecm = copy.deepcopy(img)
@@ -201,6 +200,8 @@ def test(data,
 # ============================================================================================================================
             out, score = model.forward_score(img, router, router_ins)
             score
+            if visualization!=False:
+                print("ECM", float(score[0].item())>=float(router_th), paths)
 # ============================================================================================================================
             t0 += time_synchronized() - t
 
@@ -254,10 +255,6 @@ def test(data,
                         ecm_model_pred_label = torch.argmax(ecm_model_result)
                         ecm_model_pred_label_value = ecm_model_pred_label.item()
 
-                        if ecm_th:
-                            if not (ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_result)).item() >= float(ecm_th)):
-                                ecm_model_pred_label_value = 1
-
                         if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
                             return_preds.append(object_bbox)
                         else:
@@ -270,6 +267,8 @@ def test(data,
         out = preds
 # ============================================================================================================================
         detection_time_ret += (time.perf_counter()-detection_time_now)
+        detection_time_now = time.perf_counter()
+        # Statistics per image
         for si, pred in enumerate(out):
             labels = targets[targets[:, 0] == si, 1:]
             nl = len(labels)
@@ -469,7 +468,7 @@ if __name__ == '__main__':
     parser.add_argument('--router_path', default="./ecm/model_path/router.pth")
     parser.add_argument('--seed', default=1)
     parser.add_argument('--detection_th', default=False)
-    parser.add_argument('--ecm_th', default=False, help='')
+    parser.add_argument('--visualization', default=False)
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -497,7 +496,7 @@ if __name__ == '__main__':
              router_path=opt.router_path,
              seed=opt.seed,
              detection_th=opt.detection_th,
-             ecm_th=opt.ecm_th,
+             visualization=opt.visualization
              )
 
     elif opt.task == 'speed':  # speed benchmarks

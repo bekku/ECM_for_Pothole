@@ -103,6 +103,7 @@ def test(data,
     detection_time_ret = 0
     detection_time_now = time.perf_counter()
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
+        detection_time_now = time.perf_counter()
         img = img.to(device, non_blocking=True)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -126,7 +127,6 @@ def test(data,
             out = non_max_suppression(out, conf_thres=conf_thres, iou_thres=iou_thres, labels=lb, multi_label=True)
             t1 += time_synchronized() - t
         detection_time_ret += (time.perf_counter()-detection_time_now)
-        detection_time_now = time.perf_counter()
         # Statistics per image
         for si, pred in enumerate(out):
             labels = targets[targets[:, 0] == si, 1:]

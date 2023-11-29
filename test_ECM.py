@@ -134,6 +134,7 @@ def test(data,
     detection_time_ret = 0
     detection_time_now = time.perf_counter()
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
+        detection_time_now = time.perf_counter()
         img = img.to(device, non_blocking=True)
 # iumage to ECM
 # ====================================
@@ -225,7 +226,6 @@ def test(data,
         out = preds
 # ============================================================================================================================
         detection_time_ret += (time.perf_counter()-detection_time_now)
-        detection_time_now = time.perf_counter()
         # Statistics per image
         for si, pred in enumerate(out):
             labels = targets[targets[:, 0] == si, 1:]

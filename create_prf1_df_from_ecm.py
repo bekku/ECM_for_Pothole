@@ -33,7 +33,7 @@ from utils import general
 from utils.metrics import *
 
 # PrecisonとRecall, F1の計算を行う関数
-def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=None, conf_thres=0.001, iou_thres=0.65):
+def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, iouv, niou, pr_th=None, conf_thres=0.001, iou_thres=0.65, ecm_th=False):
     # パラメータ
     model.eval()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -103,6 +103,10 @@ def p_r_f1_calc(ecm, model, ecm_model, img, targets, paths, shapes, nc, half, io
                     for ecm_model_result, object_bbox in zip(ecm_model_results, np_preds[start_idx:end_idx]):
                         ecm_model_pred_label = torch.argmax(ecm_model_result)
                         ecm_model_pred_label_value = ecm_model_pred_label.item()
+
+                        if ecm_th:
+                            if not (ecm_model_pred_label_value == 0 and max(softmax_func(ecm_model_result)).item() >= float(ecm_th)):
+                                ecm_model_pred_label_value = 1
 
                         # ecm_modelの出力が陥没穴(class:0), 検出された物体が陥没穴ではない(class!=0)の場合そのまま追加する。
                         if ecm_model_pred_label_value == 0 or int(object_bbox[-1]) != 0:
@@ -230,7 +234,8 @@ def test(data,
          is_coco=False,
          v5_metric=False,
          pr_conf_yolo=0,
-         pr_conf_yolo_ecm=0):
+         pr_conf_yolo_ecm=0,
+         ecm_th=False):
     # Initialize/load model and set device
     training = model is not None
     if training:  # called by train.py
@@ -359,6 +364,7 @@ if __name__ == '__main__':
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
     parser.add_argument('--pr_conf_yolo')
     parser.add_argument('--pr_conf_yolo_ecm')
+    parser.add_argument('--ecm_th', default=False, help='')
     opt = parser.parse_args()
     opt.save_json |= opt.data.endswith('potholes.yaml')
     opt.data = check_file(opt.data)  # check file
@@ -382,7 +388,8 @@ if __name__ == '__main__':
              trace=not opt.no_trace,
              v5_metric=opt.v5_metric,
              pr_conf_yolo=opt.pr_conf_yolo,
-             pr_conf_yolo_ecm=opt.pr_conf_yolo_ecm
+             pr_conf_yolo_ecm=opt.pr_conf_yolo_ecm,
+             ecm_th=opt.ecm_th,
              )
 
     elif opt.task == 'speed':  # speed benchmarks
