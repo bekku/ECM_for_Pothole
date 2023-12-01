@@ -17,7 +17,7 @@ from utils.general import coco80_to_coco91_class, check_dataset, check_file, che
 from utils.metrics import ap_per_class, ConfusionMatrix
 from utils.plots import plot_images, output_to_target
 from utils.torch_utils import select_device, time_synchronized, intersect_dicts
-
+import time
 
 logger = logging.getLogger(__name__)
 
